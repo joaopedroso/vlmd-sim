@@ -16,6 +16,7 @@ class Edge:
     from_station: str
     to_station: str
     travel_time_min: float  # minutes
+    line: str = ""          # metro line identifier (e.g. "A", "B", "E")
 
 
 @dataclass
@@ -31,6 +32,7 @@ class ODEntry:
     origin: str
     destination: str
     mean_passengers: float
+    variance_passengers: float  # variance of passenger count; default 0.1 * mean
 
 
 @dataclass
@@ -54,8 +56,9 @@ class Event:
 @dataclass
 class Volunteer:
     volunteer_id: str
-    route: list[str]        # ordered list of station ids
-    board_time: int         # minutes since midnight at origin
+    route: list[str]            # ordered list of station ids
+    board_time: int             # minutes since midnight at origin
+    valid_stations: frozenset   # stations where locker interaction is allowed
     carrying: Optional[str] = None   # parcel_id being carried
 
 

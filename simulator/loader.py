@@ -29,6 +29,7 @@ def load_graph(path: Path) -> list[Edge]:
                 from_station=row["from_station"].strip(),
                 to_station=row["to_station"].strip(),
                 travel_time_min=float(row["travel_time_min"]),
+                line=row.get("line", "").strip(),
             ))
     return edges
 
@@ -49,11 +50,14 @@ def load_od_matrices(path: Path) -> list[ODEntry]:
     entries: list[ODEntry] = []
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
+            mean = float(row["mean_passengers"])
+            variance = float(row["variance_passengers"]) if "variance_passengers" in row else 0.1 * mean
             entries.append(ODEntry(
                 hour=int(row["hour"]),
                 origin=row["origin"].strip(),
                 destination=row["destination"].strip(),
-                mean_passengers=float(row["mean_passengers"]),
+                mean_passengers=mean,
+                variance_passengers=variance,
             ))
     return entries
 

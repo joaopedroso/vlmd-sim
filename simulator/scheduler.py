@@ -11,9 +11,20 @@ class Simulator:
     """
     Event types
     -----------
-    'parcel_released'  – payload: Parcel
+    'parcel_released'  – payload: parcel_id (str)
     'volunteer_at'     – payload: (Volunteer, station_index: int)
     'end'              – payload: None
+
+    Transshipment heuristic
+    -----------------------
+    A volunteer picks up a parcel at their current station if at least one
+    station on their remaining route is strictly closer (fewer hops) to the
+    parcel's destination than the current locker.
+
+    The volunteer deposits the parcel as soon as no remaining station on their
+    route improves on the current station's hop distance to the destination
+    (i.e. the current station is at least as good as anywhere still ahead).
+    This naturally includes direct delivery when the destination is reached.
     """
 
     def __init__(
@@ -22,7 +33,7 @@ class Simulator:
         volunteers: list[Volunteer],
         network: Network,
         end_time: int,          # minutes since midnight
-        leg_time: int = 3,      # default minutes per inter-station leg if timetable absent
+        leg_time: int = 3,      # default minutes per inter-station leg
         rng: random.Random | None = None,
     ) -> None:
         self._parcels: dict[str, Parcel] = {p.parcel_id: p for p in parcels}
@@ -43,22 +54,17 @@ class Simulator:
         self._lockers.clear()
         self._heap.clear()
 
-        # Schedule parcel-release events
         for p in self._parcels.values():
             heapq.heappush(self._heap, Event(p.release_time, "parcel_released", p.parcel_id))
 
-        # Schedule first volunteer arrival (at their origin station)
         for v in self._volunteers:
             heapq.heappush(self._heap, Event(v.board_time, "volunteer_at", (v, 0)))
 
-        # End-of-simulation sentinel
         heapq.heappush(self._heap, Event(self._end_time, "end", None))
 
         while self._heap:
             event = heapq.heappop(self._heap)
-            if event.kind == "end":
-                break
-            if event.time > self._end_time:
+            if event.kind == "end" or event.time > self._end_time:
                 break
             self._dispatch(event)
 
@@ -82,63 +88,65 @@ class Simulator:
         volunteer, station_idx = event.payload
 
         current_station = volunteer.route[station_idx]
+        prev_station = volunteer.route[station_idx - 1] if station_idx > 0 else current_station
+        remaining = volunteer.route[station_idx + 1:]   # stations strictly after current
 
-        # --- Drop off carried parcel if destination reached ---
-        if volunteer.carrying is not None:
-            p = self._parcels[volunteer.carrying]
-            if p.destination == current_station:
-                p.delivered = True
-                p.delivery_time = event.time
-                p.current_locker = current_station
-                self._movements.append(Movement(
-                    parcel_id=p.parcel_id,
-                    volunteer_id=volunteer.volunteer_id,
-                    from_station=volunteer.route[station_idx - 1] if station_idx > 0 else current_station,
-                    to_station=current_station,
-                    timestamp=event.time,
-                ))
-                volunteer.carrying = None
-            elif p.destination in self._network.stations_after(volunteer.route, current_station):
-                # Keep carrying — will deliver later
-                pass
-            else:
-                # Volunteer's route doesn't reach destination; deposit in locker here
-                p.current_locker = current_station
-                self._lockers.setdefault(current_station, []).append(p.parcel_id)
-                self._movements.append(Movement(
-                    parcel_id=p.parcel_id,
-                    volunteer_id=volunteer.volunteer_id,
-                    from_station=volunteer.route[station_idx - 1] if station_idx > 0 else current_station,
-                    to_station=current_station,
-                    timestamp=event.time,
-                ))
-                volunteer.carrying = None
+        # Locker interactions are only allowed at valid stations (origin, destination,
+        # or transfer points where the volunteer changes metro line).
+        if current_station in volunteer.valid_stations:
+            # Among remaining stations, only those where interaction is allowed matter
+            # for hop-distance comparisons (the parcel can only be picked up there).
+            valid_remaining = [s for s in remaining if s in volunteer.valid_stations]
 
-        # --- Pick up a parcel if not carrying one ---
-        if volunteer.carrying is None:
-            ahead = self._network.stations_after(volunteer.route, current_station)
-            ahead_set = set(ahead)
-            available = self._lockers.get(current_station, [])
-            # Find parcels whose destination is on the volunteer's remaining route
-            candidates = [
-                pid for pid in available
-                if not self._parcels[pid].delivered
-                and self._parcels[pid].destination in ahead_set
-            ]
-            if candidates:
-                # Greedy: pick the parcel whose destination appears earliest on route
-                def route_idx(pid: str) -> int:
-                    dest = self._parcels[pid].destination
-                    return ahead.index(dest) if dest in ahead else len(ahead)
+            # --- Drop off or keep carrying ---
+            if volunteer.carrying is not None:
+                p = self._parcels[volunteer.carrying]
 
-                best = min(candidates, key=route_idx)
-                available.remove(best)
-                if not available:
-                    del self._lockers[current_station]
-                volunteer.carrying = best
-                self._parcels[best].current_locker = current_station  # in transit
+                hops_here = self._network.hop_distance(current_station, p.destination)
+                best_ahead = min(
+                    (self._network.hop_distance(s, p.destination) for s in valid_remaining),
+                    default=hops_here + 1,  # no valid stations ahead → deposit here
+                )
 
-        # --- Advance volunteer to next station ---
+                if best_ahead < hops_here:
+                    # A valid station further ahead is closer to destination; keep carrying.
+                    pass
+                else:
+                    # Current station is at least as good as any valid station still ahead.
+                    if hops_here == 0:
+                        p.delivered = True
+                        p.delivery_time = event.time
+                    p.current_locker = current_station
+                    if not p.delivered:
+                        self._lockers.setdefault(current_station, []).append(p.parcel_id)
+                    self._record_movement(p, volunteer.volunteer_id, prev_station, current_station, event.time)
+                    volunteer.carrying = None
+
+            # --- Pick up a parcel if not carrying one ---
+            if volunteer.carrying is None:
+                available = self._lockers.get(current_station, [])
+                candidates: list[tuple[int, str]] = []
+
+                for pid in available:
+                    p = self._parcels[pid]
+                    if p.delivered:
+                        continue
+                    hops_here = self._network.hop_distance(current_station, p.destination)
+                    best_ahead = min(
+                        (self._network.hop_distance(s, p.destination) for s in valid_remaining),
+                        default=hops_here + 1,
+                    )
+                    if best_ahead < hops_here:
+                        candidates.append((best_ahead, pid))
+
+                if candidates:
+                    best_pid = min(candidates)[1]
+                    available.remove(best_pid)
+                    if not available:
+                        del self._lockers[current_station]
+                    volunteer.carrying = best_pid
+
+        # --- Advance to next station ---
         next_idx = station_idx + 1
         if next_idx < len(volunteer.route):
             heapq.heappush(self._heap, Event(
@@ -146,3 +154,19 @@ class Simulator:
                 "volunteer_at",
                 (volunteer, next_idx),
             ))
+
+    def _record_movement(
+        self,
+        parcel: Parcel,
+        volunteer_id: str,
+        from_station: str,
+        to_station: str,
+        timestamp: int,
+    ) -> None:
+        self._movements.append(Movement(
+            parcel_id=parcel.parcel_id,
+            volunteer_id=volunteer_id,
+            from_station=from_station,
+            to_station=to_station,
+            timestamp=timestamp,
+        ))

@@ -14,9 +14,9 @@ def generate_volunteers(
     rng: random.Random,
 ) -> list[Volunteer]:
     """
-    For each OD entry sample a number of commuters (Normal approximation,
-    variance = 0.1 * mean), take volunteer_fraction of them, assign a shortest-
-    path route, and spread departures uniformly across the hour.
+    For each OD entry sample a number of commuters (Normal approximation
+    using the entry's variance_passengers), take volunteer_fraction of them,
+    assign a shortest-path route, and spread departures uniformly across the hour.
     """
     volunteers: list[Volunteer] = []
     vid = 0
@@ -25,14 +25,15 @@ def generate_volunteers(
         if entry.mean_passengers <= 0:
             continue
         mean = entry.mean_passengers
-        std = math.sqrt(0.1 * mean)
-        count = max(0, round(rng.gauss(mean, std)))
+        std = math.sqrt(entry.variance_passengers) if entry.variance_passengers > 0 else 0.0
+        count = max(0, round(rng.gauss(mean, std) if std > 0 else mean))
         n_volunteers = round(count * volunteer_fraction)
 
         route = network.shortest_path(entry.origin, entry.destination)
         if len(route) < 2:
             continue  # unreachable or same station
 
+        valid = network.valid_stations(route)
         hour_start = entry.hour * 60  # minutes since midnight
         for _ in range(n_volunteers):
             board_time = hour_start + rng.randint(0, 59)
@@ -40,6 +41,7 @@ def generate_volunteers(
                 volunteer_id=f"V{vid:06d}",
                 route=route,
                 board_time=board_time,
+                valid_stations=valid,
             ))
             vid += 1
 
