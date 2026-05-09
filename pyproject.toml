@@ -3,4 +3,6 @@ name = "vlmd-sim"
 version = "0.1.0"
 description = "Volunteer-based last-mile delivery simulator for metro networks"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.9",
+]

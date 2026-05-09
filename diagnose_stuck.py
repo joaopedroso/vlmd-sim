@@ -7,8 +7,9 @@ For each undelivered parcel classifies the cause:
 
 Usage
 -----
-  uv run python diagnose_stuck.py                         # instance 0, uniform, p=1.0
+  uv run python diagnose_stuck.py                                    # instance 0, uniform, p=1.0, hop
   uv run python diagnose_stuck.py --instance 2 --mode negative --fraction 0.1
+  uv run python diagnose_stuck.py --heuristic flow --mode negative   # flow-distance heuristic
 """
 
 from __future__ import annotations
@@ -16,10 +17,11 @@ import argparse
 import random
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable
 
 from simulator.loader import (
     load_graph, load_od_matrices, load_parcels, load_stations,
-    load_timetable, build_timetable_index,
+    load_timetable, build_timetable_index, od_daily_flows,
 )
 from simulator.model import Parcel, Volunteer
 from simulator.network import Network
@@ -107,13 +109,14 @@ def _summarise_visits(
     visits: list[tuple],
     parcel: Parcel,
     network: Network,
+    dist_fn: Callable[[str, str], float],
     *,
     max_print: int = 6,
 ) -> list[str]:
     """Explain why each volunteer visit at the stuck station did NOT pick up the parcel."""
     dest = parcel.destination
     stuck = parcel.current_locker
-    hops_stuck = network.hop_distance(stuck, dest)
+    dist_stuck = dist_fn(stuck, dest)
     release_min = parcel.release_time
 
     reasons: dict[str, int] = defaultdict(int)  # reason → count
@@ -129,10 +132,10 @@ def _summarise_visits(
             total += 1
             continue
         best_ahead = min(
-            (network.hop_distance(s, dest) for s in valid_rem),
-            default=hops_stuck + 1,
+            (dist_fn(s, dest) for s in valid_rem),
+            default=dist_stuck + 1,
         )
-        if best_ahead >= hops_stuck:
+        if best_ahead >= dist_stuck:
             if not valid_rem:
                 reasons["no_valid_ahead"] += 1
             else:
@@ -150,12 +153,12 @@ def _summarise_visits(
     lines = [f"    {total} volunteer visit(s) at {stuck}:"]
     for reason, cnt in sorted(reasons.items(), key=lambda x: -x[1]):
         label = {
-            "before_release":        "arrived before parcel released",
-            "already_carrying":      "already carrying another parcel",
-            "no_valid_ahead":        "no valid stations ahead (route ends here)",
-            "no_improvement_ahead":  "no valid station ahead improves hop distance",
+            "before_release":              "arrived before parcel released",
+            "already_carrying":            "already carrying another parcel",
+            "no_valid_ahead":              "no valid stations ahead (route ends here)",
+            "no_improvement_ahead":        "no valid station ahead improves distance",
             "other_parcel_picked_instead": "competing parcel in locker had better score",
-            "should_have_picked_up": "*** BUG: qualified but no parcel was picked up ***",
+            "should_have_picked_up":       "*** BUG: qualified but no parcel was picked up ***",
         }.get(reason, reason)
         lines.append(f"      {cnt:4d} × {label}")
     return lines
@@ -167,12 +170,13 @@ def _summarise_visits(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--instance",  type=int,   default=0)
-    parser.add_argument("--mode",      default="uniform",
+    parser.add_argument("--instance",   type=int,   default=0)
+    parser.add_argument("--mode",       default="uniform",
                         choices=list(PARCEL_MODES))
-    parser.add_argument("--fraction",  type=float, default=1.0)
-    parser.add_argument("--leg-time",  type=int,   default=3)
-    parser.add_argument("--max-parcels", type=int, default=50,
+    parser.add_argument("--fraction",   type=float, default=1.0)
+    parser.add_argument("--heuristic",  default="hop", choices=["hop", "flow"])
+    parser.add_argument("--leg-time",   type=int,   default=3)
+    parser.add_argument("--max-parcels", type=int,  default=50,
                         help="Print at most this many stuck-parcel details")
     args = parser.parse_args()
 
@@ -191,17 +195,24 @@ def main() -> None:
     od_entries = load_od_matrices(instance_dir / "od_matrix.csv")
     parcels    = load_parcels(instance_dir / f"parcels_{args.mode}.csv")
 
+    if args.heuristic == "flow":
+        network.precompute_flow_distances(od_daily_flows(od_entries))
+        dist_fn: Callable[[str, str], float] = network.flow_distance
+    else:
+        dist_fn = lambda a, b: float(network.hop_distance(a, b))
+
     seed = _seed(args.instance, args.mode)
     rng  = random.Random(seed)
 
     volunteers = generate_volunteers(
         od_entries, network, args.fraction, rng, timetable, n_days=N_DAYS,
     )
-    print(f"Instance {args.instance:02d}  mode={args.mode}  p={args.fraction:.1f}")
+    print(f"Instance {args.instance:02d}  mode={args.mode}  p={args.fraction:.1f}  heuristic={args.heuristic}")
     print(f"Parcels: {len(parcels)}   Volunteers: {len(volunteers)}\n")
 
     sim = DiagSimulator(
         parcels, volunteers, network, leg_time=args.leg_time, timetable=timetable,
+        heuristic=args.heuristic,
     )
     sim.run()
 
@@ -232,7 +243,7 @@ def main() -> None:
                   f"  ({hops} hop{'s' if hops != 1 else ''})"
                   f"  released {_fmt_time(p.release_time)}")
             visits = sim.visits.get(p.origin, [])
-            lines  = _summarise_visits(visits, p, network)
+            lines  = _summarise_visits(visits, p, network, dist_fn)
             print("\n".join(lines))
         if len(at_origin) > args.max_parcels:
             print(f"\n  ... and {len(at_origin) - args.max_parcels} more (use --max-parcels to see all)")
@@ -273,7 +284,7 @@ def main() -> None:
                 (p.parcel_id, p.current_locker), p.release_time
             )
             later_visits = [(t, vid, vr, c, pk) for (t, vid, vr, c, pk) in visits if t >= arrived_at]
-            lines = _summarise_visits(later_visits, p, network)
+            lines = _summarise_visits(later_visits, p, network, dist_fn)
             print("\n".join(lines))
         if len(in_transit) > args.max_parcels:
             print(f"\n  ... and {len(in_transit) - args.max_parcels} more")
@@ -288,27 +299,26 @@ def main() -> None:
     cause_counts: dict[str, int] = defaultdict(int)
 
     def _dominant_cause(p: Parcel) -> str:
-        stuck   = p.current_locker
-        hops_stuck = network.hop_distance(stuck, p.destination)
-        visits  = sim.visits.get(stuck, [])
+        stuck      = p.current_locker
+        dist_stuck = dist_fn(stuck, p.destination)
+        visits     = sim.visits.get(stuck, [])
         arrived_at = sim.parcel_arrival.get((p.parcel_id, stuck), p.release_time)
-        later   = [(t, vid, vr, c, pk) for (t, vid, vr, c, pk) in visits if t >= arrived_at]
+        later      = [(t, vid, vr, c, pk) for (t, vid, vr, c, pk) in visits if t >= arrived_at]
 
         if not later:
             if not visits:
                 return "no_volunteer_ever_at_station"
             return "all_volunteers_passed_before_release"
 
-        before  = sum(1 for (t,*_) in visits if t < p.release_time)
-        carrying = sum(1 for (_,_,_,c,_pk) in later if c is not None)
-        no_ahead = sum(1 for (_,_,vr,c,_pk) in later if c is None and not vr)
+        carrying  = sum(1 for (_,_,_,c,_pk) in later if c is not None)
+        no_ahead  = sum(1 for (_,_,vr,c,_pk) in later if c is None and not vr)
         no_improv = sum(1 for (_,_,vr,c,_pk) in later
                         if c is None and vr and
-                        min(network.hop_distance(s, p.destination) for s in vr) >= hops_stuck)
+                        min(dist_fn(s, p.destination) for s in vr) >= dist_stuck)
 
         other_picked = sum(1 for (_,_,vr,c,pk) in later
                            if c is None and pk is not None and pk != p.parcel_id and
-                           min((network.hop_distance(s, p.destination) for s in vr), default=hops_stuck+1) < hops_stuck)
+                           min((dist_fn(s, p.destination) for s in vr), default=dist_stuck+1) < dist_stuck)
 
         # dominant reason among post-release visits
         if no_ahead + no_improv + other_picked == len(later) - carrying:
@@ -316,7 +326,7 @@ def main() -> None:
                 return "competing_parcel_always_wins"
             if no_ahead > no_improv:
                 return "route_ends_at_stuck_station"
-            return "no_volunteer_route_improves_hops"
+            return "no_volunteer_route_improves_distance"
         if carrying == len(later):
             return "all_post_release_volunteers_carrying"
         return "mixed"
@@ -329,7 +339,7 @@ def main() -> None:
             "no_volunteer_ever_at_station":         "No volunteer ever visited the stuck station",
             "all_volunteers_passed_before_release": "All visitors arrived before parcel release",
             "route_ends_at_stuck_station":          "Volunteer routes end at stuck station (no onward leg)",
-            "no_volunteer_route_improves_hops":     "Visitors' onward valid stations don't reduce hop count",
+            "no_volunteer_route_improves_distance":  "Visitors' onward valid stations don't reduce distance",
             "all_post_release_volunteers_carrying": "All post-release visitors already carrying a parcel",
             "competing_parcel_always_wins":         "A competing locker parcel always outranked this one",
             "mixed":                                "Multiple reasons (mixed)",

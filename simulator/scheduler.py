@@ -5,6 +5,7 @@ import heapq
 import random
 from .model import Event, Parcel, Volunteer, Movement
 from .network import Network
+from .loader import TimetableIndex, next_arrival
 
 
 class Simulator:
@@ -25,6 +26,12 @@ class Simulator:
     route improves on the current station's hop distance to the destination
     (i.e. the current station is at least as good as anywhere still ahead).
     This naturally includes direct delivery when the destination is reached.
+    Heuristics
+    ----------
+    'hop'   – distances measured in unweighted graph hops (original)
+    'flow'  – distances measured as weighted shortest path with arc weight
+               1 / daily_OD_flow(A→B); lower cost = more volunteer coverage.
+               Requires network.precompute_flow_distances() to have been called.
     """
 
     def __init__(
@@ -32,16 +39,20 @@ class Simulator:
         parcels: list[Parcel],
         volunteers: list[Volunteer],
         network: Network,
-        end_time: int,          # minutes since midnight
-        leg_time: int = 3,      # default minutes per inter-station leg
+        end_time: int | None = None,        # None = run until queue is exhausted
+        leg_time: int = 3,                  # fallback minutes per inter-station leg
+        timetable: TimetableIndex | None = None,
         rng: random.Random | None = None,
+        heuristic: str = "hop",             # "hop" or "flow"
     ) -> None:
         self._parcels: dict[str, Parcel] = {p.parcel_id: p for p in parcels}
         self._volunteers = volunteers
         self._network = network
         self._end_time = end_time
         self._leg_time = leg_time
+        self._timetable: TimetableIndex = timetable or {}
         self._rng = rng or random.Random()
+        self._heuristic = heuristic
 
         # lockers: station_id -> list of parcel_ids available there
         self._lockers: dict[str, list[str]] = {}
@@ -54,21 +65,33 @@ class Simulator:
         self._lockers.clear()
         self._heap.clear()
 
+        self._n_undelivered = len(self._parcels)
+
         for p in self._parcels.values():
             heapq.heappush(self._heap, Event(p.release_time, "parcel_released", p.parcel_id))
 
         for v in self._volunteers:
             heapq.heappush(self._heap, Event(v.board_time, "volunteer_at", (v, 0)))
 
-        heapq.heappush(self._heap, Event(self._end_time, "end", None))
+        if self._end_time is not None:
+            heapq.heappush(self._heap, Event(self._end_time, "end", None))
 
         while self._heap:
             event = heapq.heappop(self._heap)
-            if event.kind == "end" or event.time > self._end_time:
+            if event.kind == "end":
                 break
             self._dispatch(event)
+            if self._n_undelivered == 0:
+                break
 
         return self._movements
+
+    # ------------------------------------------------------------------
+    def _dist(self, station: str, destination: str) -> float:
+        """Distance from station to destination under the active heuristic."""
+        if self._heuristic == "flow":
+            return self._network.flow_distance(station, destination)
+        return float(self._network.hop_distance(station, destination))
 
     # ------------------------------------------------------------------
     def _dispatch(self, event: Event) -> None:
@@ -102,20 +125,21 @@ class Simulator:
             if volunteer.carrying is not None:
                 p = self._parcels[volunteer.carrying]
 
-                hops_here = self._network.hop_distance(current_station, p.destination)
+                dist_here = self._dist(current_station, p.destination)
                 best_ahead = min(
-                    (self._network.hop_distance(s, p.destination) for s in valid_remaining),
-                    default=hops_here + 1,  # no valid stations ahead → deposit here
+                    (self._dist(s, p.destination) for s in valid_remaining),
+                    default=float("inf"),   # no valid stations ahead → deposit here
                 )
 
-                if best_ahead < hops_here:
+                if best_ahead < dist_here:
                     # A valid station further ahead is closer to destination; keep carrying.
                     pass
                 else:
                     # Current station is at least as good as any valid station still ahead.
-                    if hops_here == 0:
+                    if self._network.hop_distance(current_station, p.destination) == 0:
                         p.delivered = True
                         p.delivery_time = event.time
+                        self._n_undelivered -= 1
                     p.current_locker = current_station
                     if not p.delivered:
                         self._lockers.setdefault(current_station, []).append(p.parcel_id)
@@ -125,18 +149,18 @@ class Simulator:
             # --- Pick up a parcel if not carrying one ---
             if volunteer.carrying is None:
                 available = self._lockers.get(current_station, [])
-                candidates: list[tuple[int, str]] = []
+                candidates: list[tuple[float, str]] = []
 
                 for pid in available:
                     p = self._parcels[pid]
                     if p.delivered:
                         continue
-                    hops_here = self._network.hop_distance(current_station, p.destination)
+                    dist_here = self._dist(current_station, p.destination)
                     best_ahead = min(
-                        (self._network.hop_distance(s, p.destination) for s in valid_remaining),
-                        default=hops_here + 1,
+                        (self._dist(s, p.destination) for s in valid_remaining),
+                        default=float("inf"),
                     )
-                    if best_ahead < hops_here:
+                    if best_ahead < dist_here:
                         candidates.append((best_ahead, pid))
 
                 if candidates:
@@ -149,11 +173,11 @@ class Simulator:
         # --- Advance to next station ---
         next_idx = station_idx + 1
         if next_idx < len(volunteer.route):
-            heapq.heappush(self._heap, Event(
-                event.time + self._leg_time,
-                "volunteer_at",
-                (volunteer, next_idx),
-            ))
+            next_station = volunteer.route[next_idx]
+            arrive = next_arrival(self._timetable, current_station, next_station, event.time)
+            if arrive is None:
+                arrive = event.time + self._leg_time
+            heapq.heappush(self._heap, Event(arrive, "volunteer_at", (volunteer, next_idx)))
 
     def _record_movement(
         self,

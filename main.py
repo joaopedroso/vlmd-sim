@@ -5,7 +5,10 @@ import argparse
 import random
 from pathlib import Path
 
-from simulator.loader import load_graph, load_od_matrices, load_parcels
+from simulator.loader import (
+    load_graph, load_od_matrices, load_parcels,
+    load_timetable, build_timetable_index, od_daily_flows,
+)
 from simulator.network import Network
 from simulator.volunteers import generate_volunteers
 from simulator.scheduler import Simulator
@@ -26,8 +29,13 @@ def parse_args() -> argparse.Namespace:
              "Use 0.0 to sweep all fractions from 0%% to 100%%.",
     )
     parser.add_argument(
-        "--end-time", type=int, default=23 * 60,
-        help="Simulation end time in minutes since midnight (default: 1380 = 23:00)",
+        "--n-days", type=int, default=1,
+        help="Number of days volunteers repeat their commute (default: 1). "
+             "end-time defaults to n-days × 1440 min unless overridden.",
+    )
+    parser.add_argument(
+        "--end-time", type=int, default=None,
+        help="Hard cutoff in minutes (default: none — runs until queue is empty)",
     )
     parser.add_argument(
         "--leg-time", type=int, default=3,
@@ -37,6 +45,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quiet", action="store_true", help="Suppress per-run output")
     parser.add_argument("--sweep", action="store_true",
                         help="Sweep volunteer fraction from 0%% to 100%% in steps of 10%%")
+    parser.add_argument(
+        "--heuristic", choices=("hop", "flow"), default="hop",
+        help="Transshipment heuristic: 'hop' (default) or 'flow' (OD-flow-weighted)",
+    )
     return parser.parse_args()
 
 
@@ -46,14 +58,29 @@ def run_simulation(args: argparse.Namespace, volunteer_fraction: float) -> dict:
     graph_edges = load_graph(args.data_dir / "graph.csv")
     network = Network(graph_edges)
     od_entries = load_od_matrices(args.data_dir / "od_matrices.csv")
+    if args.heuristic == "flow":
+        network.precompute_flow_distances(od_daily_flows(od_entries))
     parcels = load_parcels(args.data_dir / "parcels.csv")
 
-    volunteers = generate_volunteers(od_entries, network, volunteer_fraction=volunteer_fraction, rng=rng)
+    timetable_path = args.data_dir / "timetable.csv"
+    timetable = (
+        build_timetable_index(load_timetable(timetable_path), n_days=args.n_days)
+        if timetable_path.exists() else {}
+    )
+
+    volunteers = generate_volunteers(
+        od_entries, network, volunteer_fraction=volunteer_fraction,
+        rng=rng, timetable=timetable, n_days=args.n_days,
+    )
 
     if not args.quiet:
         print(f"\n[p={volunteer_fraction:.2f}] {len(volunteers)} volunteers | {len(parcels)} parcels")
 
-    sim = Simulator(parcels, volunteers, network, end_time=args.end_time, leg_time=args.leg_time, rng=rng)
+    sim = Simulator(
+        parcels, volunteers, network,
+        end_time=args.end_time, leg_time=args.leg_time, timetable=timetable, rng=rng,
+        heuristic=args.heuristic,
+    )
     movements = sim.run()
 
     stats = compute_stats(parcels)

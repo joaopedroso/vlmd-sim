@@ -13,17 +13,26 @@ def compute_stats(parcels: list[Parcel]) -> dict:
         for p in parcels
         if p.delivered and p.delivery_time is not None
     ]
-    n_delivered = len(spans)
-    n_total = len(parcels)
+    n_delivered  = len(spans)
+    n_total      = len(parcels)
+    # Undelivered parcels: distinguish those moved at least once from those
+    # that never left their origin locker.
+    n_in_transit = sum(
+        1 for p in parcels
+        if not p.delivered and p.current_locker != p.origin
+    )
+    n_at_origin  = n_total - n_delivered - n_in_transit
     return {
-        "n_total": n_total,
-        "n_delivered": n_delivered,
-        "delivery_rate": n_delivered / n_total if n_total else 0.0,
-        "mean_span_min": statistics.mean(spans) if spans else None,
-        "median_span_min": statistics.median(spans) if spans else None,
-        "stdev_span_min": statistics.stdev(spans) if len(spans) > 1 else None,
-        "min_span_min": min(spans) if spans else None,
-        "max_span_min": max(spans) if spans else None,
+        "n_total":        n_total,
+        "n_delivered":    n_delivered,
+        "n_in_transit":   n_in_transit,   # moved ≥1 hop, not yet at destination
+        "n_at_origin":    n_at_origin,    # never picked up
+        "delivery_rate":  n_delivered / n_total if n_total else 0.0,
+        "mean_span_min":   statistics.mean(spans)   if spans           else None,
+        "median_span_min": statistics.median(spans) if spans           else None,
+        "stdev_span_min":  statistics.stdev(spans)  if len(spans) > 1  else None,
+        "min_span_min":    min(spans)                if spans           else None,
+        "max_span_min":    max(spans)                if spans           else None,
     }
 
 

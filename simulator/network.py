@@ -94,3 +94,52 @@ class Network:
             return path[idx + 1:]
         except ValueError:
             return []
+
+    # ------------------------------------------------------------------
+    # Flow-weighted distances (must call precompute_flow_distances first)
+    # ------------------------------------------------------------------
+
+    def precompute_flow_distances(
+        self, od_flows: dict[tuple[str, str], float]
+    ) -> None:
+        """Precompute all-pairs weighted shortest-path distances.
+
+        Arc weight for A→B = 1 / total_daily_OD_flow(A→B).
+        Lower distance means more volunteer coverage on that route.
+        Call this once per OD matrix before using flow_distance().
+        """
+        self._flow_dist: dict[str, dict[str, float]] = {
+            s: self._dijkstra_flow(s, od_flows) for s in self._adj
+        }
+
+    def _dijkstra_flow(
+        self,
+        origin: str,
+        od_flows: dict[tuple[str, str], float],
+    ) -> dict[str, float]:
+        INF = float("inf")
+        dist: dict[str, float] = {origin: 0.0}
+        heap: list[tuple[float, str]] = [(0.0, origin)]
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist.get(u, INF):
+                continue
+            for v, _ in self._adj.get(u, []):
+                flow = od_flows.get((u, v), 0.0)
+                w = 1.0 / flow if flow > 0.0 else INF
+                nd = d + w
+                if nd < dist.get(v, INF):
+                    dist[v] = nd
+                    heapq.heappush(heap, (nd, v))
+        return dist
+
+    def flow_distance(self, origin: str, destination: str) -> float:
+        """Weighted shortest-path distance (lower = more volunteer flow).
+
+        Raises RuntimeError if precompute_flow_distances() has not been called.
+        """
+        if not hasattr(self, "_flow_dist"):
+            raise RuntimeError(
+                "Call precompute_flow_distances() before using flow_distance()."
+            )
+        return self._flow_dist.get(origin, {}).get(destination, float("inf"))
