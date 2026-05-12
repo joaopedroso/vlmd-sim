@@ -10,6 +10,7 @@ gracefully to single-heuristic figures.
 Output (written to --out-dir, default results/experiment/)
 ----------------------------------------------------------
   delivery_rate.png   — delivery rate vs volunteer fraction
+  same_day_rate.png   — same-day delivery rate vs volunteer fraction
   delivery_span.png   — mean delivery span vs volunteer fraction
   parcel_fate.png     — stacked fate breakdown (delivered / in-transit / stuck)
 
@@ -64,6 +65,7 @@ def load_summary(path: Path) -> list[dict]:
     for r in rows:
         r["volunteer_fraction"] = float(r["volunteer_fraction"])
         r["delivery_rate"]      = float(r["delivery_rate"])
+        r["same_day_rate"]      = float(r["same_day_rate"]) if r.get("same_day_rate") else 0.0
         r["mean_span_min"]      = float(r["mean_span_min"]) if r["mean_span_min"] else None
         r["n_total"]            = int(r["n_total"])
         r["n_in_transit"]       = int(r["n_in_transit"])  if r.get("n_in_transit")  else 0
@@ -96,18 +98,21 @@ def _aggregate_one(rows: list[dict]) -> dict:
         out[mode] = {}
         for frac, rlist in sorted(bucket[mode].items()):
             rates    = [r["delivery_rate"] for r in rlist]
+            sdays    = [r["same_day_rate"] for r in rlist]
             spans    = [r["mean_span_min"] for r in rlist if r["mean_span_min"] is not None]
             transits = [r["n_in_transit"] / r["n_total"] for r in rlist]
             origins  = [r["n_at_origin"]  / r["n_total"] for r in rlist]
             out[mode][frac] = {
-                "mean_rate":    statistics.mean(rates),
-                "std_rate":     statistics.stdev(rates)    if len(rates)  > 1 else 0.0,
-                "mean_span":    statistics.mean(spans)     if spans            else None,
-                "std_span":     statistics.stdev(spans)    if len(spans)  > 1  else None,
-                "mean_transit": statistics.mean(transits),
-                "std_transit":  statistics.stdev(transits) if len(transits) > 1 else 0.0,
-                "mean_origin":  statistics.mean(origins),
-                "n_instances":  len(rates),
+                "mean_rate":     statistics.mean(rates),
+                "std_rate":      statistics.stdev(rates)    if len(rates)  > 1 else 0.0,
+                "mean_same_day": statistics.mean(sdays),
+                "std_same_day":  statistics.stdev(sdays)   if len(sdays)  > 1 else 0.0,
+                "mean_span":     statistics.mean(spans)     if spans            else None,
+                "std_span":      statistics.stdev(spans)    if len(spans)  > 1  else None,
+                "mean_transit":  statistics.mean(transits),
+                "std_transit":   statistics.stdev(transits) if len(transits) > 1 else 0.0,
+                "mean_origin":   statistics.mean(origins),
+                "n_instances":   len(rates),
             }
     return out
 
@@ -116,16 +121,24 @@ def _aggregate_one(rows: list[dict]) -> dict:
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
-def _pct_labels(ax, axis: str = "y") -> None:
-    fmt = mticker.PercentFormatter(xmax=1.0, decimals=0)
-    if axis == "y":
-        ax.yaxis.set_major_formatter(fmt)
-    else:
-        ax.xaxis.set_major_formatter(fmt)
+def _pct_y(ax) -> None:
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
+
+
+def _log_x(ax, fracs: list[float]) -> None:
+    """Log-scale x-axis labelled as percentages."""
+    ax.set_xscale("log")
+    ax.set_xticks(fracs)
+    ax.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, _: f"{x*100:.4g}%")
+    )
+    ax.tick_params(axis="x", which="minor", bottom=False)
+    lo = fracs[0] / 1.5
+    hi = fracs[-1] * 1.5
+    ax.set_xlim(lo, hi)
 
 
 def _heuristic_legend(ax, heuristics: list[str]) -> None:
-    """Add a small secondary legend for linestyle → heuristic mapping."""
     if len(heuristics) < 2:
         return
     from matplotlib.lines import Line2D
@@ -141,36 +154,38 @@ def _heuristic_legend(ax, heuristics: list[str]) -> None:
 # Figure 1 — Delivery rate
 # ---------------------------------------------------------------------------
 
+def _rate_panel(ax, agg: dict, mode: str, key_mean: str, key_std: str,
+                heuristics: list[str]) -> None:
+    color = MODE_COLORS[mode]
+    all_fracs = sorted(next(iter(agg.values()))[mode].keys())
+    for h in heuristics:
+        data  = agg[h][mode]
+        fracs = sorted(data.keys())
+        means = [data[f][key_mean] for f in fracs]
+        stds  = [data[f][key_std]  for f in fracs]
+        ax.plot(fracs, means, marker="o", markersize=3, color=color,
+                linewidth=1.8, label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
+        ax.fill_between(
+            fracs,
+            [m - s for m, s in zip(means, stds)],
+            [m + s for m, s in zip(means, stds)],
+            alpha=0.10, color=color,
+        )
+    ax.set_title(MODE_LABELS[mode], fontsize=10)
+    ax.set_xlabel("Volunteer fraction", fontsize=9)
+    _log_x(ax, all_fracs)
+    _pct_y(ax)
+    ax.set_ylim(-0.02, 1.05)
+    ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
+    ax.grid(axis="x", linestyle=":",  linewidth=0.4, alpha=0.4)
+    _heuristic_legend(ax, heuristics)
+
+
 def plot_delivery_rate(agg: dict, out_path: Path) -> None:
     heuristics = sorted(agg.keys())
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.5), sharey=True)
-
     for ax, mode in zip(axes, MODES):
-        color = MODE_COLORS[mode]
-        for h in heuristics:
-            data  = agg[h][mode]
-            fracs = sorted(data.keys())
-            means = [data[f]["mean_rate"] for f in fracs]
-            stds  = [data[f]["std_rate"]  for f in fracs]
-            style = HEURISTIC_STYLE[h]
-            ax.plot(fracs, means, marker="o", markersize=3, color=color,
-                    linewidth=1.8, label=HEURISTIC_LABEL[h], **style)
-            ax.fill_between(
-                fracs,
-                [m - s for m, s in zip(means, stds)],
-                [m + s for m, s in zip(means, stds)],
-                alpha=0.10, color=color,
-            )
-        ax.set_title(MODE_LABELS[mode], fontsize=10)
-        ax.set_xlabel("Volunteer fraction", fontsize=9)
-        _pct_labels(ax, "x")
-        _pct_labels(ax, "y")
-        ax.set_xlim(-0.02, 1.02)
-        ax.set_ylim(-0.02, 1.05)
-        ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
-        ax.grid(axis="x", linestyle=":",  linewidth=0.4, alpha=0.4)
-        _heuristic_legend(ax, heuristics)
-
+        _rate_panel(ax, agg, mode, "mean_rate", "std_rate", heuristics)
     axes[0].set_ylabel("Delivery rate", fontsize=10)
     fig.suptitle("Delivery rate vs volunteer fraction  "
                  "(solid = flow, dashed = hop)", fontsize=11)
@@ -181,7 +196,25 @@ def plot_delivery_rate(agg: dict, out_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 2 — Delivery span
+# Figure 2b — Same-day delivery rate
+# ---------------------------------------------------------------------------
+
+def plot_same_day_rate(agg: dict, out_path: Path) -> None:
+    heuristics = sorted(agg.keys())
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.5), sharey=True)
+    for ax, mode in zip(axes, MODES):
+        _rate_panel(ax, agg, mode, "mean_same_day", "std_same_day", heuristics)
+    axes[0].set_ylabel("Same-day delivery rate", fontsize=10)
+    fig.suptitle("Same-day delivery rate vs volunteer fraction  "
+                 "(solid = flow, dashed = hop)", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Figure 3 — Delivery span
 # ---------------------------------------------------------------------------
 
 def plot_delivery_span(agg: dict, out_path: Path) -> None:
@@ -190,6 +223,7 @@ def plot_delivery_span(agg: dict, out_path: Path) -> None:
 
     for ax, mode in zip(axes, MODES):
         color = MODE_COLORS[mode]
+        all_fracs = sorted(next(iter(agg.values()))[mode].keys())
         for h in heuristics:
             data  = agg[h][mode]
             fracs = sorted(data.keys())
@@ -203,14 +237,12 @@ def plot_delivery_span(agg: dict, out_path: Path) -> None:
                     y_hi.append(m + (s or 0.0))
             if not xs:
                 continue
-            style = HEURISTIC_STYLE[h]
             ax.plot(xs, ys, marker="o", markersize=3, color=color,
-                    linewidth=1.8, label=HEURISTIC_LABEL[h], **style)
+                    linewidth=1.8, label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
             ax.fill_between(xs, y_lo, y_hi, alpha=0.10, color=color)
         ax.set_title(MODE_LABELS[mode], fontsize=10)
         ax.set_xlabel("Volunteer fraction", fontsize=9)
-        _pct_labels(ax, "x")
-        ax.set_xlim(-0.02, 1.02)
+        _log_x(ax, all_fracs)
         ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
         ax.grid(axis="x", linestyle=":",  linewidth=0.4, alpha=0.4)
         _heuristic_legend(ax, heuristics)
@@ -225,7 +257,7 @@ def plot_delivery_span(agg: dict, out_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 3 — Parcel fate (stacked area, one row per heuristic)
+# Figure 4 — Parcel fate (stacked area, one row per heuristic)
 # ---------------------------------------------------------------------------
 
 def plot_parcel_fate(agg: dict, out_path: Path) -> None:
@@ -234,6 +266,7 @@ def plot_parcel_fate(agg: dict, out_path: Path) -> None:
     fig, axes = plt.subplots(n_h, 3, figsize=(13, 4.5 * n_h), sharey=True, squeeze=False)
 
     for row, h in enumerate(heuristics):
+        all_fracs = sorted(next(iter(agg[h].values())).keys())
         for col, mode in enumerate(MODES):
             ax   = axes[row][col]
             data = agg[h][mode]
@@ -252,9 +285,8 @@ def plot_parcel_fate(agg: dict, out_path: Path) -> None:
                 title += f"\n({h})"
             ax.set_title(title, fontsize=9)
             ax.set_xlabel("Volunteer fraction", fontsize=8)
-            _pct_labels(ax, "x")
-            _pct_labels(ax, "y")
-            ax.set_xlim(-0.02, 1.02)
+            _log_x(ax, all_fracs)
+            _pct_y(ax)
             ax.set_ylim(0, 1.05)
             ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
         axes[row][0].set_ylabel("Fraction of parcels", fontsize=9)
@@ -280,21 +312,30 @@ def print_summary_table(agg: dict) -> None:
         fracs = sorted(next(iter(data.values())).keys())
 
         print(f"\n=== Heuristic: {h} ===")
-        header = f"{'p':>6}  " + "  ".join(f"{'rate_'+m[:3]:>10}" for m in MODES)
+        header = f"{'p (%)':>7}  " + "  ".join(f"{'rate_'+m[:3]:>10}" for m in MODES)
 
         print("--- Delivery rate (mean ± std) ---")
         print(header)
         for f in fracs:
-            row = f"{f:>6.1f}  "
+            row = f"{f*100:>7.3g}  "
             for mode in MODES:
                 d = data[mode][f]
                 row += f"  {d['mean_rate']:4.1%}±{d['std_rate']:4.1%}"
             print(row)
 
+        print("--- Same-day delivery rate (mean ± std) ---")
+        print(header.replace("rate_", "sday_"))
+        for f in fracs:
+            row = f"{f*100:>7.3g}  "
+            for mode in MODES:
+                d = data[mode][f]
+                row += f"  {d['mean_same_day']:4.1%}±{d['std_same_day']:4.1%}"
+            print(row)
+
         print("--- Mean delivery span (min, mean ± std) ---")
         print(header.replace("rate_", "span_"))
         for f in fracs:
-            row = f"{f:>6.1f}  "
+            row = f"{f*100:>7.3g}  "
             for mode in MODES:
                 d = data[mode][f]
                 m, s = d["mean_span"], d["std_span"]
@@ -327,9 +368,10 @@ def main() -> None:
     print_summary_table(agg)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    plot_delivery_rate(agg, args.out_dir / "delivery_rate.png")
-    plot_delivery_span(agg, args.out_dir / "delivery_span.png")
-    plot_parcel_fate(agg,   args.out_dir / "parcel_fate.png")
+    plot_delivery_rate(agg,    args.out_dir / "delivery_rate.png")
+    plot_same_day_rate(agg,    args.out_dir / "same_day_rate.png")
+    plot_delivery_span(agg,    args.out_dir / "delivery_span.png")
+    plot_parcel_fate(agg,      args.out_dir / "parcel_fate.png")
 
 
 if __name__ == "__main__":

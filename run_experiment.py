@@ -3,7 +3,7 @@ Run the full experimental sweep.
 
 Experiment design
 -----------------
-  10 instances × 3 parcel modes × 11 volunteer fractions × 2 heuristics = 660 runs
+  10 instances × 3 parcel modes × 10 volunteer fractions × 2 heuristics = 600 runs
 
 Each run uses the instance-specific OD matrix (already realised, variance = 0)
 and the corresponding parcel file. The timetable is shared across all runs.
@@ -49,13 +49,14 @@ INSTANCES_DIR = DATA_DIR / "instances"
 RESULTS_DIR   = Path(__file__).parent / "results" / "experiment"
 
 PARCEL_MODES         = ("uniform", "positive", "negative")
-VOLUNTEER_FRACTIONS  = [round(i / 10, 1) for i in range(11)]
+VOLUNTEER_FRACTIONS  = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 N_INSTANCES          = 10
 HEURISTICS           = ("hop", "flow")
 
 SUMMARY_FIELDS = [
     "instance", "parcel_mode", "volunteer_fraction", "heuristic",
-    "n_total", "n_delivered", "n_in_transit", "n_at_origin", "delivery_rate",
+    "n_total", "n_delivered", "n_in_transit", "n_at_origin", "n_same_day",
+    "delivery_rate", "same_day_rate",
     "mean_span_min", "median_span_min", "stdev_span_min",
     "min_span_min", "max_span_min",
 ]
@@ -162,13 +163,14 @@ def main() -> None:
                         f.flush()
 
                         rate = result["delivery_rate"]
+                        sdr  = result["same_day_rate"]
                         span = result["mean_span_min"]
                         span_str = f"{span:6.1f} min" if span is not None else "    N/A    "
                         print(
                             f"  [{run_idx:3d}/{total_runs}] "
-                            f"instance_{instance_idx:02d}  {mode:8s}  p={p:.1f}  "
+                            f"instance_{instance_idx:02d}  {mode:8s}  p={p*100:.3g}%  "
                             f"{heuristic:3s}  "
-                            f"→ {rate:5.1%}  "
+                            f"→ {rate:5.1%} (sd {sdr:5.1%})  "
                             f"(del={result['n_delivered']:4d} "
                             f"transit={result['n_in_transit']:3d} "
                             f"origin={result['n_at_origin']:3d} / {result['n_total']})  "
