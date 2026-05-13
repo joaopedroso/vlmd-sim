@@ -43,10 +43,6 @@ def generate_volunteers(
         if entry.mean_passengers <= 0:
             continue
         mean = entry.mean_passengers
-        count = _poisson(rng, mean)
-        n_volunteers = round(count * volunteer_fraction)
-        if n_volunteers == 0:
-            continue
 
         route = network.shortest_path(entry.origin, entry.destination)
         if len(route) < 2:
@@ -55,6 +51,14 @@ def generate_volunteers(
         valid = network.valid_stations(route)
 
         for day in range(n_days):
+            # Independent draw per day: each day is a fresh Poisson trial so
+            # sparse OD pairs have n_days independent chances to generate a
+            # volunteer rather than one draw repeated for the whole week.
+            count = _poisson(rng, mean)
+            n_volunteers = round(count * volunteer_fraction)
+            if n_volunteers == 0:
+                continue
+
             day_offset = day * 24 * 60
             hour_start = entry.hour * 60 + day_offset
 
