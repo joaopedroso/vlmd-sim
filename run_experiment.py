@@ -76,7 +76,7 @@ def run_one(
     timetable: dict,
     args: argparse.Namespace,
 ) -> dict:
-    instance_dir = INSTANCES_DIR / f"instance_{instance_idx:02d}"
+    instance_dir = args.instances_dir / f"instance_{instance_idx:02d}"
     od_entries   = load_od_matrices(instance_dir / "od_matrix.csv")
     parcels      = load_parcels(instance_dir / f"parcels_{mode}.csv")
 
@@ -114,8 +114,9 @@ def _fmt(v) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full VLMD experiment sweep")
-    parser.add_argument("--data-dir",  type=Path, default=DATA_DIR)
-    parser.add_argument("--out-dir",   type=Path, default=RESULTS_DIR)
+    parser.add_argument("--data-dir",      type=Path, default=DATA_DIR)
+    parser.add_argument("--instances-dir", type=Path, default=INSTANCES_DIR)
+    parser.add_argument("--out-dir",       type=Path, default=RESULTS_DIR)
     parser.add_argument("--n-days",    type=int,  default=7,
                         help="Days volunteers repeat commute (default 7 = one week)")
     parser.add_argument("--leg-time",  type=int,  default=3,
@@ -147,7 +148,7 @@ def main() -> None:
         for instance_idx in range(N_INSTANCES):
             # Precompute flow-weighted distances for this instance's OD matrix.
             # Done once per instance; reused across all (mode, fraction, heuristic).
-            instance_dir = INSTANCES_DIR / f"instance_{instance_idx:02d}"
+            instance_dir = args.instances_dir / f"instance_{instance_idx:02d}"
             od_for_flow  = load_od_matrices(instance_dir / "od_matrix.csv")
             network.precompute_flow_distances(od_daily_flows(od_for_flow))
 
