@@ -52,10 +52,14 @@ class Simulator:
         self._leg_time = leg_time
         self._timetable: TimetableIndex = timetable or {}
         self._rng = rng or random.Random()
-        self._heuristic = heuristic
+        # "hop+" / "flow+" mean base heuristic + Phase-2 fallback to busier stations
+        self._heuristic = heuristic.rstrip("+")
+        self._phase2 = heuristic.endswith("+")
 
         # lockers: station_id -> list of parcel_ids available there
         self._lockers: dict[str, list[str]] = {}
+        # time each parcel was last placed into its current locker (for Phase-2 delay)
+        self._locker_since: dict[str, int] = {}
         self._movements: list[Movement] = []
         self._heap: list[Event] = []
 
@@ -63,6 +67,7 @@ class Simulator:
     def run(self) -> list[Movement]:
         self._movements.clear()
         self._lockers.clear()
+        self._locker_since.clear()
         self._heap.clear()
 
         self._n_undelivered = len(self._parcels)
@@ -104,6 +109,7 @@ class Simulator:
         pid: str = event.payload
         p = self._parcels[pid]
         self._lockers.setdefault(p.current_locker, []).append(pid)
+        self._locker_since[pid] = event.time
 
     def _on_volunteer_at(self, event: Event) -> None:
         volunteer: Volunteer
@@ -143,6 +149,7 @@ class Simulator:
                     p.current_locker = current_station
                     if not p.delivered:
                         self._lockers.setdefault(current_station, []).append(p.parcel_id)
+                        self._locker_since[p.parcel_id] = event.time
                     self._record_movement(p, volunteer.volunteer_id, prev_station, current_station, event.time)
                     volunteer.carrying = None
 
@@ -164,11 +171,41 @@ class Simulator:
                         candidates.append((best_ahead, pid))
 
                 if candidates:
+                    # Phase 1: strict progress — pick the parcel we can bring closest.
                     best_pid = min(candidates)[1]
                     available.remove(best_pid)
                     if not available:
                         del self._lockers[current_station]
                     volunteer.carrying = best_pid
+                elif self._phase2 and available:
+                    # Phase 2 fallback: no strict progress possible, but move the
+                    # parcel to a busier hub to improve relay-chain chances.
+                    # Only consider parcels that have been waiting ≥ 1 day so that
+                    # Phase-1 volunteers have had a full day of chances first.
+                    flow_here = self._network.station_flow(current_station)
+                    best_flow_ahead = max(
+                        (self._network.station_flow(s) for s in valid_remaining),
+                        default=0.0,
+                    )
+                    if best_flow_ahead > flow_here:
+                        eligible = [
+                            pid for pid in available
+                            if not self._parcels[pid].delivered
+                            and event.time - self._locker_since.get(pid, 0) >= 1440
+                        ]
+                        if eligible:
+                            # Among eligible parcels prefer the one closest to its
+                            # destination — most likely to be completed from the hub.
+                            best_pid = min(
+                                eligible,
+                                key=lambda pid: self._dist(
+                                    current_station, self._parcels[pid].destination
+                                ),
+                            )
+                            available.remove(best_pid)
+                            if not available:
+                                del self._lockers[current_station]
+                            volunteer.carrying = best_pid
 
         # --- Advance to next station ---
         next_idx = station_idx + 1

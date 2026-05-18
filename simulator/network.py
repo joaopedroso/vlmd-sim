@@ -99,6 +99,31 @@ class Network:
     # Flow-weighted distances (must call precompute_flow_distances first)
     # ------------------------------------------------------------------
 
+    def precompute_station_flows(
+        self, od_flows: dict[tuple[str, str], float]
+    ) -> None:
+        """Precompute total daily flow (in + out) per station.
+
+        Used by the Phase-2 fallback heuristic to identify busier relay hubs.
+        Call this once per OD matrix before using station_flow().
+        """
+        totals: dict[str, float] = {}
+        for (a, b), flow in od_flows.items():
+            totals[a] = totals.get(a, 0.0) + flow
+            totals[b] = totals.get(b, 0.0) + flow
+        self._station_flows = totals
+
+    def station_flow(self, station: str) -> float:
+        """Total daily OD flow through a station (in + out).
+
+        Raises RuntimeError if precompute_station_flows() has not been called.
+        """
+        if not hasattr(self, "_station_flows"):
+            raise RuntimeError(
+                "Call precompute_station_flows() before using station_flow()."
+            )
+        return self._station_flows.get(station, 0.0)
+
     def precompute_flow_distances(
         self, od_flows: dict[tuple[str, str], float]
     ) -> None:
@@ -107,7 +132,9 @@ class Network:
         Arc weight for A→B = 1 / total_daily_OD_flow(A→B).
         Lower distance means more volunteer coverage on that route.
         Call this once per OD matrix before using flow_distance().
+        Also computes station flows as a side effect.
         """
+        self.precompute_station_flows(od_flows)
         self._flow_dist: dict[str, dict[str, float]] = {
             s: self._dijkstra_flow(s, od_flows) for s in self._adj
         }

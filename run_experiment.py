@@ -51,7 +51,7 @@ RESULTS_DIR   = Path(__file__).parent / "results" / "experiment"
 PARCEL_MODES         = ("uniform", "positive", "negative")
 VOLUNTEER_FRACTIONS  = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 N_INSTANCES          = 10
-HEURISTICS           = ("hop", "flow")
+HEURISTICS           = ("hop", "flow", "hop+", "flow+")
 
 SUMMARY_FIELDS = [
     "instance", "parcel_mode", "volunteer_fraction", "heuristic",
