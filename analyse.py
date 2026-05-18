@@ -49,10 +49,17 @@ MODE_COLORS = {
     "negative": "#e15759",
 }
 HEURISTIC_STYLE = {
-    "hop":  {"linestyle": "--", "alpha": 0.85},
-    "flow": {"linestyle": "-",  "alpha": 1.00},
+    "hop":   {"linestyle": "--", "linewidth": 1.5, "alpha": 0.80},
+    "flow":  {"linestyle": "-",  "linewidth": 1.5, "alpha": 0.90},
+    "hop+":  {"linestyle": "--", "linewidth": 2.4, "alpha": 0.80},
+    "flow+": {"linestyle": "-",  "linewidth": 2.4, "alpha": 1.00},
 }
-HEURISTIC_LABEL = {"hop": "hop", "flow": "flow"}
+HEURISTIC_LABEL = {
+    "hop":   "hop",
+    "flow":  "flow",
+    "hop+":  "hop+",
+    "flow+": "flow+",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -143,8 +150,7 @@ def _heuristic_legend(ax, heuristics: list[str]) -> None:
         return
     from matplotlib.lines import Line2D
     handles = [
-        Line2D([0], [0], color="grey", **HEURISTIC_STYLE[h], linewidth=1.6,
-               label=HEURISTIC_LABEL[h])
+        Line2D([0], [0], color="grey", label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
         for h in heuristics
     ]
     ax.legend(handles=handles, fontsize=8, loc="lower right", framealpha=0.8)
@@ -164,7 +170,7 @@ def _rate_panel(ax, agg: dict, mode: str, key_mean: str, key_std: str,
         means = [data[f][key_mean] for f in fracs]
         stds  = [data[f][key_std]  for f in fracs]
         ax.plot(fracs, means, marker="o", markersize=3, color=color,
-                linewidth=1.8, label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
+                label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
         ax.fill_between(
             fracs,
             [m - s for m, s in zip(means, stds)],
@@ -188,7 +194,7 @@ def plot_delivery_rate(agg: dict, out_path: Path) -> None:
         _rate_panel(ax, agg, mode, "mean_rate", "std_rate", heuristics)
     axes[0].set_ylabel("Delivery rate", fontsize=10)
     fig.suptitle("Delivery rate vs volunteer fraction  "
-                 "(solid = flow, dashed = hop)", fontsize=11)
+                 "(solid = flow/flow+, dashed = hop/hop+; thick = phase-2 fallback)", fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -206,7 +212,7 @@ def plot_same_day_rate(agg: dict, out_path: Path) -> None:
         _rate_panel(ax, agg, mode, "mean_same_day", "std_same_day", heuristics)
     axes[0].set_ylabel("Same-day delivery rate", fontsize=10)
     fig.suptitle("Same-day delivery rate vs volunteer fraction  "
-                 "(solid = flow, dashed = hop)", fontsize=11)
+                 "(solid = flow/flow+, dashed = hop/hop+; thick = phase-2 fallback)", fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -238,7 +244,7 @@ def plot_delivery_span(agg: dict, out_path: Path) -> None:
             if not xs:
                 continue
             ax.plot(xs, ys, marker="o", markersize=3, color=color,
-                    linewidth=1.8, label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
+                    label=HEURISTIC_LABEL[h], **HEURISTIC_STYLE[h])
             ax.fill_between(xs, y_lo, y_hi, alpha=0.10, color=color)
         ax.set_title(MODE_LABELS[mode], fontsize=10)
         ax.set_xlabel("Volunteer fraction", fontsize=9)
@@ -249,7 +255,7 @@ def plot_delivery_span(agg: dict, out_path: Path) -> None:
 
     axes[0].set_ylabel("Mean delivery span (min)", fontsize=10)
     fig.suptitle("Mean delivery span vs volunteer fraction  "
-                 "(solid = flow, dashed = hop)", fontsize=11)
+                 "(solid = flow/flow+, dashed = hop/hop+; thick = phase-2 fallback)", fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
