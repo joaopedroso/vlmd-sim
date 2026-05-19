@@ -60,6 +60,8 @@ class Simulator:
         self._lockers: dict[str, list[str]] = {}
         # time each parcel was last placed into its current locker (for Phase-2 delay)
         self._locker_since: dict[str, int] = {}
+        # completed locker stays: (station_id, parcel_id, enter_time, exit_time)
+        self._locker_history: list[tuple[str, str, int, int]] = []
         self._movements: list[Movement] = []
         self._heap: list[Event] = []
 
@@ -68,6 +70,7 @@ class Simulator:
         self._movements.clear()
         self._lockers.clear()
         self._locker_since.clear()
+        self._locker_history.clear()
         self._heap.clear()
 
         self._n_undelivered = len(self._parcels)
@@ -173,9 +176,7 @@ class Simulator:
                 if candidates:
                     # Phase 1: strict progress — pick the parcel we can bring closest.
                     best_pid = min(candidates)[1]
-                    available.remove(best_pid)
-                    if not available:
-                        del self._lockers[current_station]
+                    self._do_pickup(available, current_station, best_pid, event.time)
                     volunteer.carrying = best_pid
                 elif self._phase2 and available:
                     # Phase 2 fallback: no strict progress possible, but move the
@@ -202,9 +203,7 @@ class Simulator:
                                     current_station, self._parcels[pid].destination
                                 ),
                             )
-                            available.remove(best_pid)
-                            if not available:
-                                del self._lockers[current_station]
+                            self._do_pickup(available, current_station, best_pid, event.time)
                             volunteer.carrying = best_pid
 
         # --- Advance to next station ---
@@ -215,6 +214,32 @@ class Simulator:
             if arrive is None:
                 arrive = event.time + self._leg_time
             heapq.heappush(self._heap, Event(arrive, "volunteer_at", (volunteer, next_idx)))
+
+    def _do_pickup(
+        self, available: list[str], station: str, pid: str, now: int
+    ) -> None:
+        """Remove pid from the station locker and log the completed stay."""
+        self._locker_history.append(
+            (station, pid, self._locker_since.get(pid, 0), now)
+        )
+        available.remove(pid)
+        if not available:
+            del self._lockers[station]
+
+    def get_locker_history(
+        self, end_time: int | None = None
+    ) -> list[tuple[str, str, int, int]]:
+        """Return completed locker stays plus open stays for parcels still in lockers.
+
+        end_time defaults to 7 × 1440 (7-day simulation window).
+        Each entry: (station_id, parcel_id, enter_time, exit_time).
+        """
+        close = end_time if end_time is not None else 7 * 1440
+        result = list(self._locker_history)
+        for station, pids in self._lockers.items():
+            for pid in pids:
+                result.append((station, pid, self._locker_since.get(pid, 0), close))
+        return result
 
     def _record_movement(
         self,

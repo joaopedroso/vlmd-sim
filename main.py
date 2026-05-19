@@ -12,7 +12,11 @@ from simulator.loader import (
 from simulator.network import Network
 from simulator.volunteers import generate_volunteers
 from simulator.scheduler import Simulator
-from simulator.reporter import compute_stats, save_movements, save_parcel_summary
+from simulator.reporter import (
+    compute_stats, save_movements, save_parcel_summary,
+    compute_locker_stats, save_locker_stats,
+)
+from simulator.loader import load_stations
 
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -43,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-run output")
+    parser.add_argument("--locker-stats", action="store_true",
+                        help="Write per-station locker occupancy CSV after each run")
     parser.add_argument("--sweep", action="store_true",
                         help="Sweep volunteer fraction from 0%% to 100%% in steps of 10%%")
     parser.add_argument(
@@ -99,6 +105,19 @@ def run_simulation(args: argparse.Namespace, volunteer_fraction: float) -> dict:
     tag = f"p{int(volunteer_fraction * 100):03d}"
     save_movements(movements, args.results_dir / f"movements_{tag}.csv")
     save_parcel_summary(parcels, args.results_dir / f"parcels_{tag}.csv")
+
+    if args.locker_stats:
+        station_names = {sid: s.name for sid, s in
+                         load_stations(args.data_dir / "stations.csv").items()}
+        history = sim.get_locker_history(end_time=args.n_days * 1440)
+        lstats  = compute_locker_stats(history, station_names)
+        save_locker_stats(lstats, args.results_dir / f"locker_stats_{tag}.csv")
+        if not args.quiet:
+            print(f"\n  Top-10 stations by peak locker occupancy:")
+            print(f"  {'Station':30s}  {'peak':>5}  {'total':>6}  {'mean':>6}")
+            for row in lstats[:10]:
+                print(f"  {row['station_name']:30s}  {row['peak_occupancy']:>5d}"
+                      f"  {row['total_parcels']:>6d}  {row['mean_occupancy']:>6.2f}")
 
     return {"volunteer_fraction": volunteer_fraction, **stats}
 

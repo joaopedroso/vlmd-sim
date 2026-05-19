@@ -44,6 +44,68 @@ def compute_stats(parcels: list[Parcel]) -> dict:
     }
 
 
+def compute_locker_stats(
+    history: list[tuple[str, str, int, int]],
+    station_names: dict[str, str] | None = None,
+) -> list[dict]:
+    """Compute per-station locker occupancy statistics.
+
+    history  — list of (station_id, parcel_id, enter_time, exit_time)
+    Returns a list of dicts sorted by peak_occupancy descending:
+      station_id, station_name, peak_occupancy, total_parcels, mean_occupancy
+    """
+    from collections import defaultdict
+
+    # Collect intervals and parcel sets per station
+    intervals:   dict[str, list[tuple[int, int]]] = defaultdict(list)
+    parcel_sets: dict[str, set[str]]              = defaultdict(set)
+
+    for station, pid, t_in, t_out in history:
+        intervals[station].append((t_in, t_out))
+        parcel_sets[station].add(pid)
+
+    result = []
+    for station, ivs in intervals.items():
+        # Sweep-line to find peak and time-weighted mean occupancy
+        events: list[tuple[int, int]] = []
+        for t_in, t_out in ivs:
+            events.append((t_in, +1))
+            events.append((t_out, -1))
+        events.sort()
+
+        peak = current = 0
+        weighted_sum = 0.0
+        prev_t = events[0][0] if events else 0
+        for t, delta in events:
+            weighted_sum += current * (t - prev_t)
+            current += delta
+            peak = max(peak, current)
+            prev_t = t
+
+        sim_span = events[-1][0] - events[0][0] if events else 1
+        mean_occ = weighted_sum / sim_span if sim_span > 0 else 0.0
+
+        name = (station_names or {}).get(station, station)
+        result.append({
+            "station_id":     station,
+            "station_name":   name,
+            "peak_occupancy": peak,
+            "total_parcels":  len(parcel_sets[station]),
+            "mean_occupancy": round(mean_occ, 3),
+        })
+
+    return sorted(result, key=lambda x: -x["peak_occupancy"])
+
+
+def save_locker_stats(stats: list[dict], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = ["station_id", "station_name", "peak_occupancy", "total_parcels", "mean_occupancy"]
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(stats)
+
+
 def save_movements(movements: list[Movement], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
