@@ -52,9 +52,8 @@ class Simulator:
         self._leg_time = leg_time
         self._timetable: TimetableIndex = timetable or {}
         self._rng = rng or random.Random()
-        # "hop+" / "flow+" mean base heuristic + Phase-2 fallback to busier stations
         self._heuristic = heuristic.rstrip("+")
-        self._phase2 = heuristic.endswith("+")
+        self._phase2 = heuristic.endswith("+")   # hop+ / flow+
 
         # lockers: station_id -> list of parcel_ids available there
         self._lockers: dict[str, list[str]] = {}
@@ -179,13 +178,14 @@ class Simulator:
                     self._do_pickup(available, current_station, best_pid, event.time)
                     volunteer.carrying = best_pid
                 elif self._phase2 and available:
-                    # Phase 2 fallback: no strict progress possible, but move the
-                    # parcel to a busier hub to improve relay-chain chances.
-                    # Only consider parcels that have been waiting ≥ 1 day so that
-                    # Phase-1 volunteers have had a full day of chances first.
-                    flow_here = self._network.station_flow(current_station)
+                    # Phase-2 fallback (hop+/flow+): no strict progress possible, but move
+                    # the parcel to a busier hub to improve relay-chain chances.
+                    # Only consider parcels waiting ≥ 1 day so Phase-1 has had a full day.
+                    # Hub attractivity = OD flow (trips starting/ending) + transit flow
+                    # (trips passing through as intermediate), combined.
+                    flow_here = self._network.combined_station_flow(current_station)
                     best_flow_ahead = max(
-                        (self._network.station_flow(s) for s in valid_remaining),
+                        (self._network.combined_station_flow(s) for s in valid_remaining),
                         default=0.0,
                     )
                     if best_flow_ahead > flow_here:
@@ -195,8 +195,6 @@ class Simulator:
                             and event.time - self._locker_since.get(pid, 0) >= 1440
                         ]
                         if eligible:
-                            # Among eligible parcels prefer the one closest to its
-                            # destination — most likely to be completed from the hub.
                             best_pid = min(
                                 eligible,
                                 key=lambda pid: self._dist(

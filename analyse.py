@@ -49,16 +49,20 @@ MODE_COLORS = {
     "negative": "#e15759",
 }
 HEURISTIC_STYLE = {
-    "hop":   {"linestyle": "--", "linewidth": 1.5, "alpha": 0.80},
-    "flow":  {"linestyle": "-",  "linewidth": 1.5, "alpha": 0.90},
+    "hop":   {"linestyle": "--", "linewidth": 1.5, "alpha": 0.75},
+    "flow":  {"linestyle": "-",  "linewidth": 1.5, "alpha": 0.85},
     "hop+":  {"linestyle": "--", "linewidth": 2.4, "alpha": 0.80},
     "flow+": {"linestyle": "-",  "linewidth": 2.4, "alpha": 1.00},
 }
 HEURISTIC_LABEL = {
-    "hop":   "hop",
-    "flow":  "flow",
-    "hop+":  "hop+",
-    "flow+": "flow+",
+    "hop":     "hop",
+    "flow":    "flow",
+    "hop+":    "hop+",
+    "flow+":   "flow+",
+    "hop++":   "hop++",
+    "flow++":  "flow++",
+    "hop+++":  "hop+++",
+    "flow+++": "flow+++",
 }
 
 

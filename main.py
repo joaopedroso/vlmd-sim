@@ -52,9 +52,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep", action="store_true",
                         help="Sweep volunteer fraction from 0%% to 100%% in steps of 10%%")
     parser.add_argument(
-        "--heuristic", choices=("hop", "flow", "hop+", "flow+"), default="hop",
-        help="Transshipment heuristic: 'hop' or 'flow'; append '+' to add "
-             "Phase-2 fallback (move to busier hub when no progress possible)",
+        "--heuristic",
+        choices=("hop", "flow", "hop+", "flow+"),
+        default="hop",
+        help="Transshipment heuristic: 'hop' (BFS hops) or 'flow' (1/OD-flow Dijkstra); "
+             "'+' adds 1-day-wait fallback to combined (OD+transit) flow hub",
     )
     return parser.parse_args()
 
@@ -67,9 +69,10 @@ def run_simulation(args: argparse.Namespace, volunteer_fraction: float) -> dict:
     od_entries = load_od_matrices(args.data_dir / "od_matrices.csv")
     flows = od_daily_flows(od_entries)
     if args.heuristic in ("flow", "flow+"):
-        network.precompute_flow_distances(flows)   # also computes station flows
+        network.precompute_flow_distances(flows)   # also computes station+transit flows
     elif args.heuristic == "hop+":
         network.precompute_station_flows(flows)
+        network.precompute_transit_flows(flows)
     parcels = load_parcels(args.data_dir / "parcels.csv")
 
     timetable_path = args.data_dir / "timetable.csv"

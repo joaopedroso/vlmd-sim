@@ -174,7 +174,8 @@ def main() -> None:
     parser.add_argument("--mode",       default="uniform",
                         choices=list(PARCEL_MODES))
     parser.add_argument("--fraction",   type=float, default=1.0)
-    parser.add_argument("--heuristic",  default="hop", choices=["hop", "flow", "hop+", "flow+"])
+    parser.add_argument("--heuristic",  default="hop",
+                        choices=["hop", "flow", "hop+", "flow+"])
     parser.add_argument("--leg-time",   type=int,   default=3)
     parser.add_argument("--max-parcels", type=int,  default=50,
                         help="Print at most this many stuck-parcel details")
@@ -197,11 +198,12 @@ def main() -> None:
 
     flows = od_daily_flows(od_entries)
     if args.heuristic in ("flow", "flow+"):
-        network.precompute_flow_distances(flows)
+        network.precompute_flow_distances(flows)   # also computes station+transit flows
         dist_fn: Callable[[str, str], float] = network.flow_distance
     else:
         if args.heuristic == "hop+":
             network.precompute_station_flows(flows)
+            network.precompute_transit_flows(flows)
         dist_fn = lambda a, b: float(network.hop_distance(a, b))
 
     seed = _seed(args.instance, args.mode)

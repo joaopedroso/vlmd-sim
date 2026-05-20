@@ -1,0 +1,513 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+\title{\textbf{Volunteer-Based Last-Mile Delivery over Metro Networks}\\
+       \large A Discrete-Event Simulation Study}
+\author{João Pedro Pedroso\\
+        \small Faculty of Sciences, University of Porto\\
+        \small \texttt{jpp@fc.up.pt}}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We study volunteer-based last-mile parcel delivery (VLMD), a system in which
+ordinary commuters carry parcels between station lockers on their regular metro
+trips. Using a discrete-event simulator calibrated to the Porto Metro network
+(85 stations, $\sim$195{,}000 daily OD trips), we measure delivery rate and
+delivery span as a function of (i) the fraction of passengers acting as
+volunteers, (ii) the spatial correlation between parcel and passenger OD
+patterns, and (iii) the transshipment heuristic. Four heuristics are evaluated:
+\texttt{hop} and \texttt{flow} (monotone-progress Phase~1 only) and
+\texttt{hop+} and \texttt{flow+} (Phase~1 with a Phase-2 fallback that
+relocates stuck parcels to high-traffic hubs). With 20\% volunteer participation
+all Phase-2 heuristics achieve $\geq99\%$ delivery rate for all parcel modes.
+\texttt{flow+} is the best overall heuristic.  Delivery rate is approximately
+independent of parcel load; the binding constraint is volunteer route coverage,
+not throughput.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%----------------------------------------------------------------------
+\section{Introduction}
+%----------------------------------------------------------------------
+
+Last-mile delivery---the final segment from a distribution hub to the
+recipient's door---accounts for a disproportionate share of logistics cost and
+urban congestion. Crowdsourced approaches recruit ordinary citizens as
+occasional couriers, exploiting the fact that urban residents routinely make
+trips that partially overlap with potential parcel routes.
+
+\textbf{Volunteer-based Last-Mile Delivery (VLMD)} is a variant tailored to
+metro networks: parcels are placed in station lockers and commuters carry them
+on their regular trips. No detour is required---a volunteer simply picks up a
+parcel at their boarding station (or a transfer point) if doing so moves the
+parcel closer to its destination, and deposits it at the most advanced point
+their route reaches. Multiple volunteers relay the parcel across the network
+over time.
+
+This paper describes \texttt{vlmd-sim}, a discrete-event simulator for VLMD,
+and reports on a systematic experiment using the Porto Metro (Portugal) as a
+case study. The main questions are:
+
+\begin{itemize}
+  \item What participation rate is needed to achieve a target delivery rate?
+  \item How does delivery span evolve with participation and parcel OD mode?
+  \item Do flow-weighted heuristics outperform hop-count heuristics?
+  \item Is a Phase-2 fallback (hub relocation) beneficial, and under what
+        conditions?
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Simulation Model}
+%----------------------------------------------------------------------
+
+\subsection{Network}
+
+The network is a directed graph $G=(V,E)$ where $V$ is the set of metro
+stations and $E$ contains one directed edge per ordered pair of adjacent
+stations on each metro line. The Porto Metro instance has $|V|=85$ stations
+and 6 lines. Each edge carries a travel-time attribute (in minutes) and a line
+label. A station is a \emph{transfer station} if it is served by more than one
+line.
+
+All-pairs unweighted (hop) distances are precomputed at startup via BFS from
+every station. Flow-weighted distances (arc weight $= 1/f_{uv}$, where $f_{uv}$
+is the total daily OD flow on arc $u\to v$) are computed via Dijkstra.
+
+\subsection{OD Matrix and Volunteers}
+
+The passenger OD matrix is generated from a gravity model applied to
+OpenStreetMap land use within 1{,}000~m of each station:
+\[
+  f_{ij} = \frac{P_i \cdot A_j}{d_{ij}^{1.5}},
+\]
+where $P_i$ (production) counts residential buildings near station~$i$ and
+$A_j$ (attraction) counts commercial, office, and industrial buildings near
+station~$j$. Evening flows (hours 17--19) are obtained by reversing morning
+flows. The matrix is balanced via iterative proportional fitting (Furness) and
+normalised to match Metro do Porto's reported 259{,}000 daily validations
+(2025), yielding approximately 195{,}324 OD trips/day.
+
+For each hourly OD entry $(i,j,\mu)$, volunteer counts for hour $h$ of day $d$
+are drawn independently from $\mathrm{Poisson}(\mu)$; a fraction $p$ of the
+realised commuters become volunteers. Each volunteer travels the shortest
+(unweighted) path from $i$ to $j$, with departure times aligned to the GTFS
+timetable.
+
+\subsection{Parcels}
+
+Parcel OD pairs are drawn from one of three modes:
+\begin{description}
+  \item[Uniform:] origin and destination drawn uniformly from $V\times V$
+        (excluding self-loops).
+  \item[Positive:] OD pair $(i,j)$ sampled with probability proportional to
+        $f_{ij}$ (parcels travel where passengers travel---easy case).
+  \item[Negative:] OD pair $(i,j)$ sampled with probability proportional to
+        $1/f_{ij}$ (parcels travel against the flow---hard case).
+\end{description}
+
+Parcel release times are drawn uniformly over the first day of the simulation.
+Each instance contains approximately 1{,}950 parcels ($\approx1\%$ of realised
+total trips).
+
+\subsection{Locker Interactions}
+
+Volunteers interact with lockers \emph{only at valid stations}: their origin,
+their destination, and any line-transfer point along their route. This models
+realistic commuter behaviour---no detour is ever required.
+
+\subsection{Transshipment Heuristics}
+
+\subsubsection{Phase 1 (all heuristics)}
+
+Let $d(u,v)$ denote the distance from station $u$ to station $v$ under the
+active metric (hop count or flow-weighted). A volunteer at station $s$ carrying
+parcel $p$ (destination $t$) drops it off if
+\[
+  d(s,t) \;\leq\; \min_{s'\in \text{valid ahead}} d(s',t),
+\]
+i.e.\ no valid station ahead strictly improves on $s$. The parcel is marked
+delivered if $d(s,t)=0$.
+
+A volunteer at $s$ not currently carrying a parcel picks up parcel $p$ from
+the locker if
+\[
+  \min_{s'\in \text{valid ahead}} d(s',t_p) \;<\; d(s,t_p),
+\]
+i.e.\ some valid station ahead is strictly closer to $p$'s destination. When
+multiple parcels qualify, the one with the smallest $d(s',t_p)$ (best
+reachable distance) is preferred. Phase~1 guarantees monotone progress: a
+parcel never moves farther from its destination.
+
+\subsubsection{Phase 2 fallback (\texttt{hop+} / \texttt{flow+})}
+
+Phase~1 can leave parcels stranded at low-traffic stations where no volunteer
+route makes progress. Phase~2 activates when Phase~1 finds no candidate and
+the following conditions hold:
+\begin{enumerate}
+  \item The parcel has been waiting in its current locker for at least 1 day
+        (1{,}440 minutes).
+  \item There exists a valid station $s'$ ahead with higher \emph{combined hub
+        attractivity} than the current station:
+        \[
+          h(s) = \underbrace{F^{\mathrm{OD}}(s)}_{\text{OD flow}} +
+                 \underbrace{F^{\mathrm{tr}}(s)}_{\text{transit flow}},
+        \]
+        where $F^{\mathrm{OD}}(s)$ is the total daily OD flow originating or
+        terminating at $s$, and $F^{\mathrm{tr}}(s)$ is the total OD flow that
+        passes through $s$ as an intermediate stop on BFS shortest paths.
+\end{enumerate}
+The 1-day wait threshold is critical: without it, Phase~2 displaces parcels
+before same-day Phase~1 volunteers have had a chance to pick them up.
+
+Among eligible parcels the volunteer picks the one closest (under the active
+metric) to its destination, maximising the chance of onward delivery.
+
+\subsubsection{Summary of heuristics}
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+Heuristic & Distance metric & Phase 2 & Hub attractivity \\
+\midrule
+\texttt{hop}   & BFS hop count   & No  & --- \\
+\texttt{flow}  & 1/OD-flow       & No  & --- \\
+\texttt{hop+}  & BFS hop count   & Yes & $F^{\mathrm{OD}}+F^{\mathrm{tr}}$ \\
+\texttt{flow+} & 1/OD-flow       & Yes & $F^{\mathrm{OD}}+F^{\mathrm{tr}}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Discrete-Event Engine}
+
+The simulator maintains a min-heap of events ordered by time. Three event
+types are processed:
+\begin{description}
+  \item[\texttt{parcel\_released}:] place the parcel in its origin locker.
+  \item[\texttt{volunteer\_at}:] process locker interaction at the current
+        station, then schedule the volunteer's arrival at the next station.
+  \item[\texttt{end}:] terminate the simulation (optional hard cutoff).
+\end{description}
+The simulation runs for 7 days ($10{,}080$ minutes) or until all parcels are
+delivered.
+
+%----------------------------------------------------------------------
+\section{Experimental Setup}
+%----------------------------------------------------------------------
+
+\subsection{Instances}
+
+Ten independent instances are generated by drawing volunteer counts from
+$\mathrm{Poisson}(\mu)$ for each OD entry $\mu$. Each instance produces three
+parcel files (uniform, positive, negative).
+
+\subsection{Design}
+
+\[
+  10 \text{ instances} \;\times\; 3 \text{ parcel modes} \;\times\;
+  10 \text{ volunteer fractions} \;\times\; 4 \text{ heuristics}
+  \;=\; 1{,}200 \text{ runs}.
+\]
+
+Volunteer fractions are log-spaced: 0.1\%, 0.2\%, 0.5\%, 1\%, 2\%, 5\%, 10\%,
+20\%, 50\%, 100\%. This range covers realistic crowdsourcing participation rates
+(typically 1--5\%) and the saturation region.
+
+A common-random-numbers design is used: for a given (instance, mode) pair the
+random seed is fixed, so the volunteer set at fraction $p$ is a strict subset
+of those at $p'>p$. Results across fractions and heuristics are therefore
+directly comparable.
+
+\subsection{Metrics}
+
+For each run we record:
+\begin{itemize}
+  \item \textbf{Delivery rate}: fraction of parcels delivered by the end of
+        the simulation.
+  \item \textbf{Same-day rate}: fraction of parcels delivered on the day of
+        release.
+  \item \textbf{Delivery span}: time from parcel release to delivery (minutes),
+        summarised as mean, median, standard deviation, min, and max.
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Results}
+%----------------------------------------------------------------------
+
+\subsection{Delivery Rate vs Volunteer Fraction}
+
+Table~\ref{tab:delivery} shows mean delivery rate $\pm$ standard deviation
+across 10 instances at selected volunteer fractions.
+
+\begin{table}[ht]
+\centering
+\caption{Mean delivery rate (\%) by heuristic, parcel mode, and volunteer
+         fraction $p$. Values averaged over 10 instances; standard deviation
+         in parentheses.}
+\label{tab:delivery}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{Uniform} & \multicolumn{2}{c}{Positive} & \multicolumn{2}{c}{Negative} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+$p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} \\
+\midrule
+  0.1  & 0.0 (0.0) & 0.0 (0.0) &  0.1 (0.1) &  0.1 (0.1) & 0.0 (0.0) & 0.0 (0.0) \\
+  0.5  & 1.6 (0.3) & 1.6 (0.3) & 35.2 (0.9) & 35.5 (1.0) & 0.0 (0.0) & 0.0 (0.1) \\
+  1    & 5.3 (0.7) & 5.4 (0.6) & 58.7 (1.3) & 59.2 (1.3) & 0.4 (0.1) & 0.4 (0.1) \\
+  2    & 9.5 (0.9) & 9.9 (0.8) & 71.8 (0.9) & 72.0 (0.9) & 1.3 (0.3) & 1.6 (0.3) \\
+  5    &26.9 (0.9) &29.1 (0.9) & 88.7 (0.5) & 89.0 (0.5) & 9.7 (1.1) &12.4 (1.1) \\
+ 10    &58.3 (1.2) &63.7 (1.3) & 98.6 (0.3) & 99.0 (0.3) &38.8 (1.7) &44.5 (1.6) \\
+ 20    &99.5 (0.4) &100.0(0.1) &100.0 (0.0) &100.0 (0.0) &99.3 (0.5) &100.0(0.1) \\
+ 50    &99.9 (0.2) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) &99.9 (0.1) &100.0(0.0) \\
+100    &100.0(0.0) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) &100.0(0.0) &100.0(0.0) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several patterns are clear:
+
+\begin{itemize}
+  \item \textbf{Positive mode} is easiest: 5\% participation achieves
+        $\sim$89\% delivery; 10\% achieves $\sim$99\%.
+  \item \textbf{Uniform mode} requires $\sim$20\% for near-complete delivery.
+  \item \textbf{Negative mode} is hardest: base heuristics need $\sim$20\%
+        for 99\% delivery, but exhibit a sharp transition between 10\% and 20\%.
+        Phase-2 heuristics (\texttt{flow+}) reach 44.5\% at 10\% vs.\
+        38.8\% for \texttt{hop}---a 5.7~pp gain in the most important operating
+        range.
+  \item At 20\%, \texttt{flow+} achieves 100\% delivery across all modes,
+        while \texttt{hop} leaves $\sim$0.7\% undelivered (uniform + negative
+        combined).
+\end{itemize}
+
+Table~\ref{tab:allheuristics} compares all four heuristics at the sensitive
+10\% and 20\% operating points.
+
+\begin{table}[ht]
+\centering
+\caption{Delivery rate (\%) for all four heuristics at 10\% and 20\%
+         volunteer fraction. Values are means over 10 instances.}
+\label{tab:allheuristics}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{3}{c}{$p=10\%$} & \multicolumn{3}{c}{$p=20\%$} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Heuristic & Uniform & Positive & Negative & Uniform & Positive & Negative \\
+\midrule
+\texttt{hop}   & 58.3 & 98.6 & 38.8 & 99.5  & 100.0 & 99.3 \\
+\texttt{flow}  & 59.5 & 98.0 & 40.9 & 99.5  & 100.0 & 98.7 \\
+\texttt{hop+}  & 60.4 & 99.2 & 40.3 & 100.0 & 100.0 & 100.0 \\
+\texttt{flow+} & 63.7 & 99.0 & 44.5 & 100.0 & 100.0 & 100.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{flow+} leads in uniform and negative modes; \texttt{hop+} leads in
+positive mode at 10\%. At 20\%, both Phase-2 heuristics reach 100\% while base
+\texttt{hop}/\texttt{flow} fall short by $\sim$0.5--1.3~pp.
+
+\subsection{Same-Day Delivery Rate}
+
+Table~\ref{tab:sameday} reports same-day delivery rates. Since Phase~2 never
+fires on day~1 (the 1-day wait threshold ensures this), \texttt{hop+} and
+\texttt{hop} have identical same-day rates, as do \texttt{flow+} and
+\texttt{flow}. Same-day delivery is substantially harder than overall delivery:
+even at 100\% participation, only 97.9\% of uniform parcels are delivered on
+the day of release.
+
+\begin{table}[ht]
+\centering
+\caption{Same-day delivery rate (\%) by heuristic and parcel mode.
+         \texttt{hop}/\texttt{hop+} and \texttt{flow}/\texttt{flow+} are
+         identical (Phase~2 never fires on day~1).}
+\label{tab:sameday}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{Uniform} & \multicolumn{2}{c}{Positive} & \multicolumn{2}{c}{Negative} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+$p$ (\%) & \texttt{hop} & \texttt{flow} & \texttt{hop} & \texttt{flow} & \texttt{hop} & \texttt{flow} \\
+\midrule
+  5    & 12.7 & 13.2 & 75.6 & 75.8 &  2.5 &  3.0 \\
+ 10    & 26.4 & 28.2 & 88.3 & 88.5 & 10.8 & 12.5 \\
+ 20    & 73.5 & 73.2 & 98.2 & 98.0 & 57.6 & 58.7 \\
+ 50    & 92.7 & 90.7 & 99.6 & 99.6 & 89.2 & 86.2 \\
+100    & 97.9 & 97.9 & 99.9 & 99.9 & 97.1 & 96.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Delivery Span}
+
+Table~\ref{tab:span} reports mean delivery span (in minutes) at selected
+fractions. Delivery span drops sharply between 10\% and 20\% (the transition
+region) and flattens beyond 50\%.
+
+\begin{table}[ht]
+\centering
+\caption{Mean delivery span (minutes) by heuristic and parcel mode.}
+\label{tab:span}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{Uniform} & \multicolumn{2}{c}{Positive} & \multicolumn{2}{c}{Negative} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+$p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} \\
+\midrule
+  5  & 2024 & 2052 & 471 & 463 & 2963 & 2949 \\
+ 10  & 2216 & 2363 & 361 & 375 & 3101 & 3166 \\
+ 20  &  641 &  658 &  71 &  71 &  971 &  998 \\
+ 50  &  224 &  238 &  35 &  34 &  306 &  329 \\
+100  &  114 &  111 &  23 &  24 &  148 &  150 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Phase-2 heuristics do not improve span at the same volunteer fraction; they
+improve delivery rate (more parcels eventually delivered), which can slightly
+inflate reported span by including previously-stuck parcels that required
+multiple relay days. At 20\%, where all heuristics deliver nearly 100\%,
+\texttt{hop+} achieves the shortest span (597~min uniform, 918~min negative),
+while \texttt{flow+} is $\sim$10--8\% longer---the flow-weighted metric routes
+relays through high-traffic corridors that may not be the shortest paths for
+final delivery.
+
+\subsection{Independence from Parcel Load}
+
+An additional experiment (not detailed here) varied parcel load between
+$\sim$195 and $\sim$1{,}950 parcels per instance. Delivery rate was
+approximately constant across this range. The binding constraint is volunteer
+route topology---can the volunteer relay chain reach the destination?---not
+throughput capacity. The 7-day window drains any queue that forms at bottleneck
+stations.
+
+\subsection{Failure Mode Analysis}
+
+Undelivered parcels fall into two categories:
+\begin{description}
+  \item[At-origin (never picked up):] the dominant failure mode. Root causes:
+    \begin{itemize}
+      \item No volunteer ever visits the origin station.
+      \item All volunteers whose route passes through the origin terminate there
+            (no valid station ahead to improve distance).
+      \item Volunteers pass through but no onward valid station reduces distance
+            to destination.
+    \end{itemize}
+  \item[In-transit (stranded mid-route):] relay chain broke partway. Common at
+        terminus stations due to directional flow imbalance.
+\end{description}
+
+\paragraph{Terminus traps.}
+Stations at the ends of lines (e.g.\ Vila do Conde, Varziela, Ramalde in the
+Porto Metro) accumulate undeliverable parcels because the dominant volunteer
+flow is city-inbound during the morning. Outbound parcels are structurally
+trapped: Phase~2 can move parcels to intermediate high-traffic hubs (e.g.\
+Senhora da Hora) but cannot complete the final outbound leg because no
+outbound-bound volunteer carries them further. This is a network topology
+limitation not addressable by heuristic changes alone.
+
+Under the negative parcel mode at 10\% volunteers, peak locker occupancy at
+terminus stations reaches 138 parcels (Vila do Conde), with a mean of $\sim$106
+parcels over the 7-day window---confirming that parcels arrive but rarely leave.
+
+\subsection{Design of the Phase-2 Fallback}
+
+A series of heuristic variants was tested to disentangle the key design choices:
+
+\begin{description}
+  \item[\texttt{hop++}/\texttt{flow++}:] time-of-day threshold (fallback fires
+        noon--18:00 to transfer stations, after 18:00 to any busier station),
+        using transit flow as hub attractivity. Tested and retired: achieves
+        $\sim$1~pp higher delivery rate at 10\% negative but loses $\sim$7~pp
+        same-day rate at 100\% volunteers.
+  \item[\texttt{hop+++}/\texttt{flow+++}:] crossing variant combining transit
+        flow with the 1-day threshold. Tested and retired: indistinguishable
+        from \texttt{hop+}/\texttt{flow+} in all metrics, confirming that the
+        \emph{threshold} (1-day wait) is the dominant design parameter, not
+        the hub-selection metric.
+\end{description}
+
+The final design uses \emph{combined hub attractivity}
+$h(s)=F^{\mathrm{OD}}(s)+F^{\mathrm{tr}}(s)$ for robustness, even though
+empirically $F^{\mathrm{OD}}$ alone would yield the same results for Porto
+Metro (major interchange stations dominate both signals).
+
+%----------------------------------------------------------------------
+\section{Conclusion}
+%----------------------------------------------------------------------
+
+We presented \texttt{vlmd-sim}, a discrete-event simulator for volunteer-based
+last-mile delivery over metro networks, and reported results from a 1{,}200-run
+experiment on the Porto Metro.
+
+\textbf{Main findings:}
+
+\begin{enumerate}
+  \item \textbf{20\% participation is sufficient} to achieve $\geq99\%$
+        delivery rate for all parcel modes, using Phase-2 heuristics.
+        The transition from low to high delivery rate is sharp and occurs
+        between 10\% and 20\%.
+
+  \item \textbf{\texttt{flow+} is the best overall heuristic.} The flow-weighted
+        distance metric helps most in the negative parcel mode (5--20\%
+        fractions), where parcels travel against the dominant passenger flow.
+        Phase~2 provides an additional 3--6~pp at 10\% negative.
+
+  \item \textbf{Same-day delivery requires much higher participation.}
+        At 10\% volunteers, only $\sim$26--28\% of uniform parcels are delivered
+        on the day of release. Phase~2 does not reduce same-day rate because its
+        1-day threshold leaves day-1 Phase-1 opportunities intact.
+
+  \item \textbf{Delivery rate is independent of parcel load.}
+        The system bottleneck is volunteer route coverage, not throughput.
+
+  \item \textbf{Terminus traps are the primary structural limitation.}
+        Stations at the ends of lines accumulate undeliverable parcels.
+        Addressing this requires either demand-side incentives (rewarding
+        outbound carries) or supply-side infrastructure (shuttle or last-mile
+        service from terminus hubs).
+
+  \item \textbf{The 1-day wait threshold is the critical Phase-2 parameter.}
+        The hub-selection metric (OD flow vs.\ transit flow, single-tier vs.\
+        two-tier) has negligible impact on outcomes. The threshold dominates.
+\end{enumerate}
+
+\textbf{Future work} includes: (i) explicit locker capacity constraints;
+(ii) per-volunteer acceptance probability $q < 1$; (iii) non-shortest-path
+volunteer routing; (iv) timetable-driven inter-station travel times replacing
+the fixed 3-minute leg fallback; and (v) unit tests for the network and
+scheduler modules.
+
+\bigskip
+\noindent The simulator source code is available at:
+\begin{center}
+\url{https://github.com/joaopedroso/vlmd-sim}
+\end{center}
+
+\end{document}

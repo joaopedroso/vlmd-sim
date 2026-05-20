@@ -13,11 +13,15 @@ class Network:
         self._adj: dict[str, list[tuple[str, float]]] = {}
         # line for each directed edge (a→b); both directions get the same line
         self._edge_line: dict[tuple[str, str], str] = {}
+        # lines serving each station (used to identify network-level transfer stations)
+        self._station_lines: dict[str, set[str]] = {}
         for e in edges:
             self._adj.setdefault(e.from_station, []).append((e.to_station, e.travel_time_min))
             self._adj.setdefault(e.to_station, []).append((e.from_station, e.travel_time_min))
             self._edge_line[(e.from_station, e.to_station)] = e.line
             self._edge_line[(e.to_station, e.from_station)] = e.line
+            self._station_lines.setdefault(e.from_station, set()).add(e.line)
+            self._station_lines.setdefault(e.to_station,   set()).add(e.line)
 
         # Precompute all-pairs hop distances (BFS, unweighted)
         self._hops: dict[str, dict[str, int]] = {
@@ -34,6 +38,34 @@ class Network:
                     dist[v] = dist[u] + 1
                     queue.append(v)
         return dist
+
+    def _bfs_path(self, origin: str, destination: str) -> list[str]:
+        """Return one BFS shortest path from origin to destination."""
+        if origin == destination:
+            return [origin]
+        prev: dict[str, str] = {}
+        queue: collections.deque[str] = collections.deque([origin])
+        visited: set[str] = {origin}
+        while queue:
+            u = queue.popleft()
+            for v, _ in self._adj.get(u, []):
+                if v not in visited:
+                    visited.add(v)
+                    prev[v] = u
+                    if v == destination:
+                        path, cur = [], destination
+                        while cur != origin:
+                            path.append(cur)
+                            cur = prev[cur]
+                        path.append(origin)
+                        path.reverse()
+                        return path
+                    queue.append(v)
+        return []  # unreachable
+
+    def is_transfer_station(self, station: str) -> bool:
+        """True if this station is served by more than one metro line."""
+        return len(self._station_lines.get(station, set())) > 1
 
     def hop_distance(self, origin: str, destination: str) -> int:
         """Number of hops (edges) on the shortest unweighted path. Returns 999 if unreachable."""
@@ -124,6 +156,40 @@ class Network:
             )
         return self._station_flows.get(station, 0.0)
 
+    def precompute_transit_flows(
+        self, od_flows: dict[tuple[str, str], float]
+    ) -> None:
+        """Precompute transit flow per station: total OD flow passing through as intermediate.
+
+        For each OD pair (A, B), all interior stations on the BFS shortest path from A to B
+        receive the pair's daily flow contribution. Endpoint stations (A, B) are excluded.
+        Call this once per OD matrix before using transit_flow().
+        """
+        totals: dict[str, float] = {}
+        for (a, b), flow in od_flows.items():
+            for s in self._bfs_path(a, b)[1:-1]:
+                totals[s] = totals.get(s, 0.0) + flow
+        self._transit_flows = totals
+
+    def transit_flow(self, station: str) -> float:
+        """OD flow that passes through this station as an intermediate hop.
+
+        Raises RuntimeError if precompute_transit_flows() has not been called.
+        """
+        if not hasattr(self, "_transit_flows"):
+            raise RuntimeError(
+                "Call precompute_transit_flows() before using transit_flow()."
+            )
+        return self._transit_flows.get(station, 0.0)
+
+    def combined_station_flow(self, station: str) -> float:
+        """OD flow (trips starting/ending here) + transit flow (trips passing through).
+
+        Raises RuntimeError if precompute_station_flows() or precompute_transit_flows()
+        has not been called.
+        """
+        return self.station_flow(station) + self.transit_flow(station)
+
     def precompute_flow_distances(
         self, od_flows: dict[tuple[str, str], float]
     ) -> None:
@@ -132,9 +198,10 @@ class Network:
         Arc weight for A→B = 1 / total_daily_OD_flow(A→B).
         Lower distance means more volunteer coverage on that route.
         Call this once per OD matrix before using flow_distance().
-        Also computes station flows as a side effect.
+        Also computes station flows and transit flows as a side effect.
         """
         self.precompute_station_flows(od_flows)
+        self.precompute_transit_flows(od_flows)
         self._flow_dist: dict[str, dict[str, float]] = {
             s: self._dijkstra_flow(s, od_flows) for s in self._adj
         }
