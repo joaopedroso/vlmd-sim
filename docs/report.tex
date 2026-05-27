@@ -127,10 +127,20 @@ categories are identified via OSM building tags and landuse polygons;
 industrial zones are included with a 1{,}000~m catchment radius because
 employment centres are often located away from stations.
 
-Evening flows (hours 17--19) are obtained by reversing the corresponding
-morning flows to model the homeward commute. The resulting matrix is balanced
-to satisfy production and attraction marginals via Iterative Proportional
-Fitting (Furness method) \cite{furness1965time}, then normalised to match
+The OD matrix covers 18 hours of operation (6:00--23:59), with three
+treatment periods:
+\begin{itemize}
+  \item \textbf{Morning peak (hours 7--9):} gravity model flows used directly;
+        these also serve as the reference for the evening reversal.
+  \item \textbf{Evening peak (hours 17--19):} flow$(i\!\to\!j)$ is replaced
+        by the mean morning flow$(j\!\to\!i)$, modelling the homeward commute.
+        When no morning reference exists the gravity estimate is retained.
+  \item \textbf{Off-peak (hours 6, 10--16, 20--23):} gravity model flows used
+        directly without modification.
+\end{itemize}
+The resulting matrix is balanced to satisfy production and attraction
+marginals via Iterative Proportional Fitting (Furness method)
+\cite{furness1965time}, then normalised to match
 Metro do Porto's publicly reported 259{,}000 daily validations for 2025
 \cite{metrodoporto2025}. The calibration target for OD trips is
 $195{,}324 \approx 259{,}000 / 1.326$ daily trips, where 1.326 is the
@@ -333,6 +343,34 @@ Several patterns are clear:
         combined).
 \end{itemize}
 
+Figure~\ref{fig:rates} shows delivery rate and same-day rate as a function
+of volunteer fraction for all three parcel modes.
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\linewidth]{figures/fig_delivery_rate.pdf}
+    \caption{Delivery rate.}
+    \label{fig:delivery_rate}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\linewidth]{figures/fig_sameday_rate.pdf}
+    \caption{Same-day delivery rate.}
+    \label{fig:sameday_rate}
+  \end{subfigure}
+  \caption{Delivery rate (left) and same-day delivery rate (right) vs.\
+           volunteer fraction for all four heuristics.
+           Panels (a)--(c) correspond to uniform, positive, and negative
+           parcel modes, respectively.
+           Line style: dashed\,=\,hop metric, solid\,=\,flow metric;
+           line weight: thin\,=\,base heuristic, thick\,=\,Phase-2 variant.
+           For same-day rate, \texttt{hop}/\texttt{hop+} and
+           \texttt{flow}/\texttt{flow+} are identical
+           (Phase~2 never fires on day~1).}
+  \label{fig:rates}
+\end{figure}
+
 Table~\ref{tab:allheuristics} compares all four heuristics at the sensitive
 10\% and 20\% operating points.
 
@@ -417,6 +455,31 @@ $p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \text
 \end{tabular}
 \end{table}
 
+Figure~\ref{fig:span_gain} shows mean delivery span (log scale) and the
+Phase-2 delivery-rate gain across all modes and fractions.
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\linewidth]{figures/fig_delivery_span.pdf}
+    \caption{Mean delivery span (minutes, log scale).}
+    \label{fig:delivery_span}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\linewidth]{figures/fig_phase2_gain.pdf}
+    \caption{Phase-2 delivery-rate gain (pp).}
+    \label{fig:phase2_gain}
+  \end{subfigure}
+  \caption{Mean delivery span (left) and Phase-2 gain in delivery rate
+           (right, percentage points) vs.\ volunteer fraction.
+           Phase-2 gain is the difference
+           $\Delta = \texttt{hop+} - \texttt{hop}$ (dashed)
+           and $\Delta = \texttt{flow+} - \texttt{flow}$ (solid).
+           Panels (a)--(c): uniform, positive, negative parcel mode.}
+  \label{fig:span_gain}
+\end{figure}
+
 Phase-2 heuristics do not reduce span at the same volunteer fraction; they
 improve delivery rate (more parcels eventually delivered), which slightly
 inflates the reported mean span by including previously-stuck parcels that
@@ -446,23 +509,35 @@ Undelivered parcels fall into two categories:
       \item Volunteers pass through but no onward valid station reduces
             distance to destination.
     \end{itemize}
-  \item[In-transit (stranded mid-route):] relay chain broke partway. Common
-        at terminus stations due to directional flow imbalance.
+  \item[In-transit (stranded mid-route):] relay chain broke partway, typically
+        near low-flow branch-end stations where outbound volunteer coverage
+        is sparse.
 \end{description}
 
-\paragraph{Terminus traps.}
-Stations at the ends of lines (e.g.\ Vila do Conde, Varziela, Ramalde in the
-Porto Metro) accumulate undeliverable parcels because the dominant volunteer
-flow is city-inbound during the morning. Outbound parcels are structurally
-trapped: Phase~2 can move parcels to intermediate high-traffic hubs (e.g.\
-Senhora da Hora) but cannot complete the final outbound leg because no
-outbound-bound volunteer carries them further. This is a network topology
-limitation not addressable by heuristic changes alone.
+\paragraph{Branch-end traps.}
+The Porto Metro has several branch stubs whose endpoint stations carry zero
+transit flow (Alto de Pega on line~B; Póvoa de Varzim on line~Bx), meaning
+no BFS shortest path passes through them as an intermediate node.  Parcels
+destined for these stations are structurally hard to deliver: the only
+volunteers who can complete the final branch segment are those whose origin
+or destination lies on that stub, and in the negative parcel mode such OD
+pairs are severely under-represented.
 
-Under the negative parcel mode at 10\% volunteers, peak locker occupancy at
-terminus stations reaches 138 parcels (Vila do Conde), with a mean of
-$\sim$106 parcels over the 7-day window---confirming that parcels arrive but
-rarely leave.
+Parcels heading for branch-end destinations frequently accumulate at the
+last reachable junction---notably Vila do Conde, where lines B and Bx
+diverge.  Vila do Conde is not itself a terminus: it is served by both
+lines and has many city-bound morning commuters.  Those commuters, however,
+cannot help: their valid stations lie in the city direction and none is
+closer to the branch-end destination than Vila do Conde itself.  Only
+a volunteer specifically travelling \emph{toward} that branch end can
+complete the final leg, and in negative mode such volunteers are rare.
+
+Under the negative parcel mode at 10\% volunteers with the \texttt{flow+}
+heuristic, peak locker occupancy reaches 138 parcels at Vila do Conde, with
+a mean of $\sim$106 parcels over the 7-day window---confirming that parcels
+accumulate there and rarely proceed to their branch-end destinations.
+This is a network topology limitation not addressable by heuristic changes
+alone.
 
 \subsection{Design of the Phase-2 Fallback}
 
@@ -517,11 +592,15 @@ last-mile delivery over metro networks, and reported results from a
   \item \textbf{Delivery rate is independent of parcel load.}
         The system bottleneck is volunteer route coverage, not throughput.
 
-  \item \textbf{Terminus traps are the primary structural limitation.}
-        Stations at the ends of lines accumulate undeliverable parcels.
-        Addressing this requires either demand-side incentives (rewarding
-        outbound carries) or supply-side infrastructure (shuttle or last-mile
-        service from terminus hubs).
+  \item \textbf{Branch-end traps are the primary structural limitation.}
+        Stations at the ends of low-flow line stubs (zero transit flow)
+        accumulate undeliverable parcels because almost no volunteer route
+        covers the final branch segment.  Junction stations immediately
+        before such stubs (e.g.\ Vila do Conde) act as involuntary holding
+        points.  Addressing this requires either demand-side incentives
+        (rewarding volunteers for outbound branch carries) or supply-side
+        infrastructure (dedicated shuttle or last-mile service for branch-end
+        stations).
 
   \item \textbf{The 1-day wait threshold is the critical Phase-2 parameter.}
         The hub-selection metric (OD flow vs.\ transit flow, single-tier vs.\
