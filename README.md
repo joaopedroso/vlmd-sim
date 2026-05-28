@@ -41,11 +41,14 @@ uv run python main.py --volunteer-fraction 0.05 --heuristic flow+
 # Single run with locker occupancy statistics
 uv run python main.py -p 0.1 --locker-stats
 
-# Full experiment sweep (10 instances × 3 parcel modes × 10 fractions × 4 heuristics)
+# Full experiment sweep (10 instances × 3 parcel modes × 10 fractions × 4 heuristics = 1200 runs)
 uv run python run_experiment.py
 
 # Analyse results and produce plots
 uv run python analyse.py
+
+# Regenerate publication figures
+uv run python docs/make_figures.py
 ```
 
 ---
@@ -70,8 +73,13 @@ SIMULATOR/
 │   ├── scheduler.py         # Discrete-event engine + transshipment heuristic
 │   └── reporter.py          # Statistics (delivery rate, span, same-day rate, locker occupancy) and CSV output
 │
+├── docs/
+│   ├── report.tex           # Full research paper (LaTeX, two-column)
+│   ├── make_figures.py      # Generate 4 publication figures from summary.csv
+│   └── figures/             # fig_delivery_rate.pdf, fig_sameday_rate.pdf, fig_delivery_span.pdf, fig_phase2_gain.pdf
+│
 └── data/
-    ├── graph.csv            # Directed metro edges with travel times and line labels
+    ├── graph.csv            # Directed metro edges: from, to, travel_time_min, line (324 rows — one per edge×line)
     ├── stations.csv         # Station IDs and names (85 stations)
     ├── od_matrices.csv      # Hourly OD matrices (mean + variance, Poisson model)
     ├── timetable.csv        # Full GTFS timetable (arrival time per stop per trip)
@@ -89,7 +97,7 @@ Results are written to `results/` (git-ignored).
 
 For each hourly OD entry, the number of commuters is drawn independently each day from a Poisson distribution with the entry's mean. A fraction `p` of those commuters become volunteers. Each volunteer travels their shortest-path route and may carry at most one parcel at a time.
 
-Volunteers interact with lockers **only at valid stations**: their origin, their destination, and any line-transfer points along their route. This models realistic behaviour — commuters do not detour to intermediate stations.
+Volunteers interact with lockers **only at valid stations**: their origin, their destination, and any inter-line interchange stations along their route. With the corrected network model (19 genuine interchange stations), this provides realistic and meaningful relay opportunities without requiring detours.
 
 ### Transshipment heuristic
 
@@ -119,6 +127,10 @@ The priority queue contains three event types:
 
 The simulation runs for 7 days (configurable). Each day is an independent Poisson draw for volunteer counts, so sparse OD pairs have multiple chances to generate a volunteer during the week.
 
+### Network model
+
+Lines B and Bx are the same physical track — Bx is an express service that skips some intermediate stops. The network correctly canonicalizes Bx → B so that shared-trunk stations (Campanhã, Trindade, Bolhão, etc.) are identified as inter-line interchanges. `graph.csv` contains one row per (from_station, to_station, line) pair (324 rows total), preserving the full line set for each directed edge.
+
 ---
 
 ## Experiment design
@@ -127,7 +139,7 @@ The simulation runs for 7 days (configurable). Each day is an independent Poisso
 10 instances × 3 parcel modes × 10 volunteer fractions × 4 heuristics = 1200 runs
 ```
 
-**Instances**: 10 independent Poisson realisations of the OD matrix; each instance has ~1,950 parcels (1% of realised trips).
+**Instances**: 10 independent Poisson realisations of the OD matrix; each instance has ~1,950 parcels (1% of realised trips). Parcel release times are drawn uniformly between 07:00 and 19:00 on the first simulation day.
 
 **Parcel modes**:
 - `uniform` — OD pairs drawn uniformly at random from the network.
@@ -148,12 +160,19 @@ The simulation runs for 7 days (configurable). Each day is an independent Poisso
 
 ### Delivery rate vs volunteer fraction
 
-- With **positive** parcel-passenger correlation, ~5% participation achieves ~88% delivery rate; ~10% achieves ~98%.
-- With **uniform** parcels, ~20% participation achieves ~96%+ delivery.
-- With **negative** correlation (worst case), ~20% participation achieves ~99% delivery.
-- `flow+` is the best overall heuristic; gains over `hop` are largest for negative mode at 5–20% fractions.
-- Same-day delivery is substantially harder: even at 100% participation, some uniform parcels require multiple days.
-- Delivery span drops sharply between 10% and 20% participation and flattens beyond 50%.
+- With **positive** parcel-passenger correlation, ~5% participation achieves ~89% delivery rate; ~10% achieves ~98%.
+- With **uniform** parcels, ~10% participation achieves ~98%; ~20% achieves ~100%.
+- With **negative** correlation (worst case), ~20% participation achieves ~99–100% with any Phase-2 heuristic.
+- `flow+` is the best overall heuristic; at 10% negative mode it outperforms `hop` by ~5 percentage points (45% vs 40%).
+- The flow distance metric contributes ~2–3 pp; Phase-2 contributes ~1–2 pp; both combined give ~5 pp total gain.
+
+### Same-day delivery rate
+
+Same-day delivery is substantially harder than overall delivery. At 10% volunteers: hop achieves 28% / 90% / 12% (positive/uniform/negative); flow achieves 30% / 90% / 14%. Phase-2 heuristics do not improve same-day rate — by design, Phase-2 only fires after a 1-day wait.
+
+### Delivery span
+
+Span drops sharply between 10% and 20% participation and flattens beyond 50%. At 20% volunteers (negative mode): `flow+` achieves mean 547 min / max 912 min versus `hop`'s 591 / 1001 min.
 
 ### Delivery rate vs parcel load
 
@@ -162,20 +181,17 @@ Delivery rate is approximately **independent of parcel load**. The binding const
 ### Failure modes
 
 - **At-origin** (never picked up): dominant failure. Root causes: no volunteer visits the origin, or all volunteers who do have no valid onward station that reduces distance.
-- **In-transit** (stranded mid-route): relay chain broke. Common at terminus stations due to directional flow imbalance.
-- **Terminus traps**: stations like Vila do Conde and Varziela accumulate undeliverable parcels because volunteer flow is predominantly city-inbound. Phase 2 moves parcels to intermediate hubs but cannot complete the final outbound leg.
+- **In-transit** (stranded mid-route): relay chain broke. Common near branch-end stations.
 
-### Locker capacity (negative mode, 10% volunteers, ~1950 parcels, `flow+`)
+### Branch-end traps
 
-| Station | Peak occupancy | Mean occupancy |
-|---------|---------------|---------------|
-| Viso | 144 | — |
-| Vila do Conde | 138 | ~106 (terminus trap) |
-| Varziela | 123 | — |
-| Ramalde | 97 | — |
-| Senhora da Hora | 97 | — |
+Stations at the end of low-traffic branches are structural bottlenecks:
 
-Positive mode is 3–5× cheaper (peak ~39 at Viso). The high mean at Vila do Conde (parcels stay nearly the full 7-day window) confirms the terminus-trap diagnosis.
+- **Alto de Pega** and **São Brás**: served only by line B local stops (skipped by Bx express). Almost no volunteer route terminates there; outbound deliveries rarely complete.
+- **Póvoa de Varzim**: true line terminus. Volunteer flow is predominantly city-inbound; parcels needing outbound delivery remain stranded.
+- **Vila do Conde**: the last inter-line interchange (B/Bx junction) before the above branch stubs. Phase 2 successfully moves parcels toward Vila do Conde from the city, but the final outbound segment has insufficient volunteer coverage.
+
+This is a network topology limitation, not addressable by heuristic changes alone.
 
 ---
 
@@ -191,7 +207,8 @@ PORTO_METRO/DATA/  (GTFS snapshot, Feb 2025)
     │     (OSM gravity model: residential production, employment/industrial attraction,
     │      1000 m catchment radius, calibrated to 259k daily validations)
     └── export_simulator_data.py → SIMULATOR/data/*.csv
-          (IPF balancing, evening reversal fix, Poisson variance, 195k OD trips/day target)
+          (IPF balancing, evening reversal fix, Poisson variance, 195k OD trips/day target,
+           all lines per edge preserved for correct transfer-station identification)
 ```
 
 ---
