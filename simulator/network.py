@@ -7,21 +7,31 @@ from .model import Edge
 
 _UNREACHABLE = 999
 
+# Express-service suffixes that share the same physical line as their base.
+# Bx is the Porto Metro express variant of line B; treat as the same line
+# for transfer-detection purposes.
+_LINE_ALIASES: dict[str, str] = {"Bx": "B"}
+
+
+def _canonical_line(line: str) -> str:
+    return _LINE_ALIASES.get(line, line)
+
 
 class Network:
     def __init__(self, edges: list[Edge]) -> None:
         self._adj: dict[str, list[tuple[str, float]]] = {}
-        # line for each directed edge (a→b); both directions get the same line
-        self._edge_line: dict[tuple[str, str], str] = {}
+        # full set of canonical lines serving each directed edge (a→b)
+        self._edge_lines: dict[tuple[str, str], set[str]] = {}
         # lines serving each station (used to identify network-level transfer stations)
         self._station_lines: dict[str, set[str]] = {}
         for e in edges:
+            canon = _canonical_line(e.line)
             self._adj.setdefault(e.from_station, []).append((e.to_station, e.travel_time_min))
             self._adj.setdefault(e.to_station, []).append((e.from_station, e.travel_time_min))
-            self._edge_line[(e.from_station, e.to_station)] = e.line
-            self._edge_line[(e.to_station, e.from_station)] = e.line
-            self._station_lines.setdefault(e.from_station, set()).add(e.line)
-            self._station_lines.setdefault(e.to_station,   set()).add(e.line)
+            self._edge_lines.setdefault((e.from_station, e.to_station), set()).add(canon)
+            self._edge_lines.setdefault((e.to_station, e.from_station), set()).add(canon)
+            self._station_lines.setdefault(e.from_station, set()).add(canon)
+            self._station_lines.setdefault(e.to_station,   set()).add(canon)
 
         # Precompute all-pairs hop distances (BFS, unweighted)
         self._hops: dict[str, dict[str, int]] = {
@@ -104,20 +114,27 @@ class Network:
         return []
 
     def transfer_stations(self, route: list[str]) -> set[str]:
-        """Stations on route where the metro line changes between consecutive edges."""
+        """Stations on route where no single line runs continuously through both
+        adjacent edges — i.e. the commuter must change trains."""
         transfers: set[str] = set()
         for i in range(1, len(route) - 1):
-            line_in  = self._edge_line.get((route[i - 1], route[i]), "")
-            line_out = self._edge_line.get((route[i], route[i + 1]), "")
-            if line_in and line_out and line_in != line_out:
+            lines_in  = self._edge_lines.get((route[i - 1], route[i]), set())
+            lines_out = self._edge_lines.get((route[i], route[i + 1]), set())
+            if lines_in and lines_out and lines_in.isdisjoint(lines_out):
                 transfers.add(route[i])
         return transfers
 
     def valid_stations(self, route: list[str]) -> frozenset:
-        """Origin, destination, and all transfer stations on route."""
+        """Origin, destination, and all inter-line interchange stations on route.
+
+        An interchange station is one served by more than one distinct metro line.
+        These are the stations where a commuter's train physically stops at a hub
+        where they could realistically interact with a locker.
+        """
         if not route:
             return frozenset()
-        return frozenset({route[0], route[-1]} | self.transfer_stations(route))
+        interchanges = {s for s in route[1:-1] if self.is_transfer_station(s)}
+        return frozenset({route[0], route[-1]} | interchanges)
 
     def stations_after(self, path: list[str], current: str) -> list[str]:
         """Return all stations on path that come after current (exclusive)."""

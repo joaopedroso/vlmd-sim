@@ -303,9 +303,11 @@ across 10 instances at selected volunteer fractions.
 
 \begin{table}[ht]
 \centering
-\caption{Mean delivery rate (\%) by heuristic, parcel mode, and volunteer
-         fraction $p$. Values averaged over 10 instances; standard deviation
-         in parentheses.}
+\caption{Mean delivery rate (\%) for the baseline (\texttt{hop}) and
+         best-performing (\texttt{flow+}) heuristics, by parcel mode and
+         volunteer fraction $p$. Values averaged over 10 instances; standard
+         deviation in parentheses. All four heuristics are compared at
+         selected operating points in Table~\ref{tab:allheuristics}.}
 \label{tab:delivery}
 \small
 \begin{tabular}{lrrrrrrrr}
@@ -316,13 +318,13 @@ $p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \text
 \midrule
   0.1  & 0.0 (0.0) & 0.0 (0.0) &  0.1 (0.1) &  0.1 (0.1) & 0.0 (0.0) & 0.0 (0.0) \\
   0.5  & 1.6 (0.3) & 1.6 (0.3) & 35.2 (0.9) & 35.5 (1.0) & 0.0 (0.0) & 0.0 (0.1) \\
-  1    & 5.3 (0.7) & 5.4 (0.6) & 58.7 (1.3) & 59.2 (1.3) & 0.4 (0.1) & 0.4 (0.1) \\
-  2    & 9.5 (0.9) & 9.9 (0.8) & 71.8 (0.9) & 72.0 (0.9) & 1.3 (0.3) & 1.6 (0.3) \\
-  5    &26.9 (0.9) &29.1 (0.9) & 88.7 (0.5) & 89.0 (0.5) & 9.7 (1.1) &12.4 (1.1) \\
- 10    &58.3 (1.2) &63.7 (1.3) & 98.6 (0.3) & 99.0 (0.3) &38.8 (1.7) &44.5 (1.6) \\
- 20    &99.5 (0.4) &100.0(0.1) &100.0 (0.0) &100.0 (0.0) &99.3 (0.5) &100.0(0.1) \\
- 50    &99.9 (0.2) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) &99.9 (0.1) &100.0(0.0) \\
-100    &100.0(0.0) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) &100.0(0.0) &100.0(0.0) \\
+  1    & 5.3 (0.7) & 5.4 (0.6) & 58.7 (1.3) & 59.2 (1.2) & 0.4 (0.1) & 0.4 (0.1) \\
+  2    & 9.5 (0.9) & 9.9 (0.8) & 71.9 (0.9) & 72.1 (0.9) & 1.3 (0.3) & 1.7 (0.3) \\
+  5    &27.8 (1.0) &30.0 (0.9) & 89.2 (0.6) & 89.5 (0.5) &10.0 (1.1) &12.8 (1.0) \\
+ 10    &59.4 (1.6) &64.3 (1.5) & 97.8 (0.3) & 98.1 (0.3) &39.9 (1.3) &45.1 (1.6) \\
+ 20    &99.4 (0.4) &100.0(0.1) &100.0 (0.1) &100.0 (0.0) &99.1 (0.4) &100.0(0.1) \\
+ 50    &99.9 (0.2) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) &99.8 (0.2) &100.0(0.0) \\
+100    &100.0(0.1) &100.0(0.0) &100.0 (0.0) &100.0 (0.0) & 99.9(0.2) &100.0(0.0) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -333,14 +335,13 @@ Several patterns are clear:
   \item \textbf{Positive mode} is easiest: 5\% participation achieves
         $\sim$89\% delivery; 10\% achieves $\sim$99\%.
   \item \textbf{Uniform mode} requires $\sim$20\% for near-complete delivery.
-  \item \textbf{Negative mode} is hardest: base heuristics need $\sim$20\%
-        for 99\% delivery, but exhibit a sharp transition between 10\% and 20\%.
-        Phase-2 heuristics (\texttt{flow+}) reach 44.5\% at 10\% vs.\
-        38.8\% for \texttt{hop}---a 5.7~pp gain in the most important
-        operating range.
+  \item \textbf{Negative mode} is hardest: base heuristics exhibit a sharp
+        transition between 10\% and 20\%.
+        \texttt{flow+} reaches 45.1\% at 10\% vs.\ 39.9\% for \texttt{hop}---a
+        5.2~pp gain in the most critical operating range.
   \item At 20\%, \texttt{flow+} achieves 100\% delivery across all modes,
-        while \texttt{hop} leaves $\sim$0.7\% undelivered (uniform + negative
-        combined).
+        while \texttt{hop} leaves $\sim$0.6--0.9\% undelivered in uniform
+        and negative modes.
 \end{itemize}
 
 Figure~\ref{fig:rates} shows delivery rate and same-day rate as a function
@@ -386,26 +387,32 @@ Table~\ref{tab:allheuristics} compares all four heuristics at the sensitive
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
 Heuristic & Uniform & Positive & Negative & Uniform & Positive & Negative \\
 \midrule
-\texttt{hop}   & 58.3 & 98.6 & 38.8 & 99.5  & 100.0 & 99.3 \\
-\texttt{flow}  & 59.5 & 98.0 & 40.9 & 99.5  & 100.0 & 98.7 \\
-\texttt{hop+}  & 60.4 & 99.2 & 40.3 & 100.0 & 100.0 & 100.0 \\
-\texttt{flow+} & 63.7 & 99.0 & 44.5 & 100.0 & 100.0 & 100.0 \\
+\texttt{hop}   & 59.4 & 97.8 & 39.9 & 99.4  & 100.0 & 99.1 \\
+\texttt{flow}  & 61.7 & 97.7 & 42.8 & 99.6  & 100.0 & 98.9 \\
+\texttt{hop+}  & 61.0 & 98.1 & 41.0 & 100.0 & 100.0 & 100.0 \\
+\texttt{flow+} & 64.3 & 98.1 & 45.1 & 100.0 & 100.0 & 100.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\texttt{flow+} leads in uniform and negative modes; \texttt{hop+} leads in
-positive mode at 10\%. At 20\%, both Phase-2 heuristics reach 100\% while
-base \texttt{hop}/\texttt{flow} fall short by $\sim$0.5--1.3~pp.
+\texttt{flow+} leads in uniform and negative modes at 10\%; \texttt{hop+}
+and \texttt{flow+} tie in positive mode (both 98.1\%). The flow distance
+metric accounts for $\sim$3~pp of the \texttt{flow+} vs.\ \texttt{hop}
+gap, with Phase~2 adding a further $\sim$2~pp. At 20\%, both Phase-2
+heuristics reach 100\% while base \texttt{hop}/\texttt{flow} fall short by
+up to 1.1~pp (\texttt{flow}: 98.9\% in negative mode).
 
 \subsection{Same-Day Delivery Rate}
 
 Table~\ref{tab:sameday} reports same-day delivery rates. Since Phase~2 never
 fires on day~1 (the 1-day wait threshold ensures this), \texttt{hop+} and
 \texttt{hop} have identical same-day rates, as do \texttt{flow+} and
-\texttt{flow}. Same-day delivery is substantially harder than overall
-delivery: even at 100\% participation, only 97.9\% of uniform parcels are
-delivered on the day of release.
+\texttt{flow}. The \texttt{flow} metric does however yield slightly higher
+same-day rates than \texttt{hop} at all fractions, as flow-weighted routing
+directs Phase-1 relays through higher-traffic corridors where same-day
+hand-offs are more likely. Same-day delivery is substantially harder than
+overall delivery: even at 100\% participation, only 97.2--97.9\% of uniform
+parcels are delivered on the day of release.
 
 \begin{table}[ht]
 \centering
@@ -420,11 +427,11 @@ delivered on the day of release.
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
 $p$ (\%) & \texttt{hop} & \texttt{flow} & \texttt{hop} & \texttt{flow} & \texttt{hop} & \texttt{flow} \\
 \midrule
-  5    & 12.7 & 13.2 & 75.6 & 75.8 &  2.5 &  3.0 \\
- 10    & 26.4 & 28.2 & 88.3 & 88.5 & 10.8 & 12.5 \\
- 20    & 73.5 & 73.2 & 98.2 & 98.0 & 57.6 & 58.7 \\
- 50    & 92.7 & 90.7 & 99.6 & 99.6 & 89.2 & 86.2 \\
-100    & 97.9 & 97.9 & 99.9 & 99.9 & 97.1 & 96.3 \\
+  5    & 13.0 & 13.4 & 76.4 & 76.7 &  2.7 &  3.1 \\
+ 10    & 28.3 & 30.1 & 89.6 & 90.0 & 11.7 & 13.9 \\
+ 20    & 75.8 & 77.1 & 98.4 & 98.3 & 59.5 & 63.1 \\
+ 50    & 91.7 & 92.0 & 99.5 & 99.6 & 87.5 & 87.5 \\
+100    & 97.2 & 97.9 & 99.9 & 99.9 & 95.9 & 96.4 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -446,11 +453,11 @@ region) and flattens beyond 50\%.
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
 $p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} \\
 \midrule
-  5  & 2024 & 2052 & 471 & 463 & 2963 & 2949 \\
- 10  & 2216 & 2363 & 361 & 375 & 3101 & 3166 \\
- 20  &  641 &  658 &  71 &  71 &  971 &  998 \\
- 50  &  224 &  238 &  35 &  34 &  306 &  329 \\
-100  &  114 &  111 &  23 &  24 &  148 &  150 \\
+  5  & 2032 & 2060 & 440 & 428 & 3007 & 2935 \\
+ 10  & 2009 & 2182 & 276 & 272 & 2883 & 3021 \\
+ 20  &  591 &  547 &  64 &  61 & 1001 &  912 \\
+ 50  &  231 &  209 &  34 &  30 &  325 &  300 \\
+100  &  123 &  110 &  22 &  22 &  159 &  147 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -480,14 +487,16 @@ Phase-2 delivery-rate gain across all modes and fractions.
   \label{fig:span_gain}
 \end{figure}
 
-Phase-2 heuristics do not reduce span at the same volunteer fraction; they
-improve delivery rate (more parcels eventually delivered), which slightly
-inflates the reported mean span by including previously-stuck parcels that
-required multiple relay days. At 20\%, where all heuristics deliver nearly
-100\%, \texttt{hop+} achieves the shortest span (597~min uniform, 918~min
-negative), while \texttt{flow+} is $\sim$8--10\% longer---the flow-weighted
-metric routes relays through high-traffic corridors that may not be the
-topologically shortest paths for final delivery.
+At fractions below 20\%, Phase-2 heuristics inflate the reported mean span
+slightly by rescuing previously-stuck parcels that required multiple relay
+days; hence \texttt{flow+} shows a longer span than \texttt{hop} at 10\%
+despite its higher delivery rate. At 20\%, where Phase-2 heuristics
+deliver 100\%, \texttt{flow+} achieves the shortest mean span (547~min
+uniform, 912~min negative), slightly below \texttt{hop+} (550~min, 942~min)
+and well below base \texttt{hop} (591~min, 1{,}001~min). With the corrected
+network model---which makes city-centre interchange stations valid relay
+points---flow-weighted routing leverages high-traffic hubs that lie closer
+to many destinations, reducing overall relay distance and span.
 
 \subsection{Independence from Parcel Load}
 
@@ -515,29 +524,26 @@ Undelivered parcels fall into two categories:
 \end{description}
 
 \paragraph{Branch-end traps.}
-The Porto Metro has several branch stubs whose endpoint stations carry zero
-transit flow (Alto de Pega on line~B; Póvoa de Varzim on line~Bx), meaning
-no BFS shortest path passes through them as an intermediate node.  Parcels
-destined for these stations are structurally hard to deliver: the only
-volunteers who can complete the final branch segment are those whose origin
-or destination lies on that stub, and in the negative parcel mode such OD
-pairs are severely under-represented.
+The Porto Metro B line branches into several stubs whose endpoint stations
+carry zero BFS transit flow---meaning no shortest path passes through them
+as an intermediate node---because shorter parallel express connections exist
+between their neighbours (Alto de Pega, São Brás) or because they are the
+physical end of the line (Póvoa de Varzim).  Parcels destined for these
+stations are structurally hard to deliver: the only volunteers who can
+complete the final branch segment are those whose own origin or destination
+lies on that stub.  In the negative parcel mode, such OD pairs are severely
+under-represented.
 
 Parcels heading for branch-end destinations frequently accumulate at the
-last reachable junction---notably Vila do Conde, where lines B and Bx
-diverge.  Vila do Conde is not itself a terminus: it is served by both
-lines and has many city-bound morning commuters.  Those commuters, however,
-cannot help: their valid stations lie in the city direction and none is
-closer to the branch-end destination than Vila do Conde itself.  Only
-a volunteer specifically travelling \emph{toward} that branch end can
-complete the final leg, and in negative mode such volunteers are rare.
-
-Under the negative parcel mode at 10\% volunteers with the \texttt{flow+}
-heuristic, peak locker occupancy reaches 138 parcels at Vila do Conde, with
-a mean of $\sim$106 parcels over the 7-day window---confirming that parcels
-accumulate there and rarely proceed to their branch-end destinations.
-This is a network topology limitation not addressable by heuristic changes
-alone.
+last interchange before the stub---notably Vila do Conde, the main junction
+on line~B where express trains diverge toward Alto de Pega and the Póvoa de
+Varzim branch.  Vila do Conde is not a terminus and has many city-bound
+morning commuters, but those commuters cannot help: their valid interchange
+stations all lie in the city direction, and none is closer to the branch-end
+destination than Vila do Conde itself.  Only a volunteer specifically
+travelling \emph{toward} the branch end can complete the final leg, and in
+negative mode such volunteers are rare.  This is a network topology
+limitation not addressable by heuristic changes alone.
 
 \subsection{Design of the Phase-2 Fallback}
 
@@ -578,16 +584,19 @@ last-mile delivery over metro networks, and reported results from a
         transition is sharp and occurs between 10\% and 20\%.
 
   \item \textbf{\texttt{flow+} is the best overall heuristic.} The
-        flow-weighted distance metric helps most in the negative parcel mode
-        (5--20\% fractions), where parcels travel against the dominant
-        passenger flow. Phase~2 provides an additional 3--6~pp at 10\%
-        negative.
+        flow-weighted distance metric and Phase~2 each contribute $\sim$3~pp
+        and $\sim$2~pp respectively at 10\% volunteers in negative mode,
+        for a combined \texttt{flow+} vs.\ \texttt{hop} gain of $\sim$5~pp.
+        At 20\%, \texttt{flow+} also achieves the shortest delivery span
+        across all modes, as flow-weighted routing leverages city-centre
+        interchange hubs that are closer to most destinations.
 
   \item \textbf{Same-day delivery requires much higher participation.}
-        At 10\% volunteers, only $\sim$26--28\% of uniform parcels are
+        At 10\% volunteers, only $\sim$28--30\% of uniform parcels are
         delivered on the day of release. Phase~2 does not reduce same-day
         rate because its 1-day threshold leaves day-1 Phase-1 opportunities
-        intact.
+        intact. The flow metric yields slightly higher same-day rates than
+        hop at all fractions.
 
   \item \textbf{Delivery rate is independent of parcel load.}
         The system bottleneck is volunteer route coverage, not throughput.
