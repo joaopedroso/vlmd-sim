@@ -442,25 +442,26 @@ Table~\ref{tab:span} reports mean delivery span (in minutes) at selected
 fractions. Delivery span drops sharply between 10\% and 20\% (the transition
 region) and flattens beyond 50\%.
 
-\begin{table}[ht]
+\begin{table*}[ht]
 \centering
-\caption{Mean delivery span (minutes) by heuristic and parcel mode.}
+\caption{Mean delivery span (minutes) by heuristic and parcel mode.
+         Mean number of delivered parcels (out of $\approx 1{,}954$) in parentheses.}
 \label{tab:span}
 \small
-\begin{tabular}{lrrrrrrrr}
+\begin{tabular}{lrrrrrr}
 \toprule
  & \multicolumn{2}{c}{Uniform} & \multicolumn{2}{c}{Positive} & \multicolumn{2}{c}{Negative} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
 $p$ (\%) & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} & \texttt{hop} & \texttt{flow+} \\
 \midrule
-  5  & 2032 & 2060 & 440 & 428 & 3007 & 2935 \\
- 10  & 2009 & 2182 & 276 & 272 & 2883 & 3021 \\
- 20  &  591 &  547 &  64 &  61 & 1001 &  912 \\
- 50  &  231 &  209 &  34 &  30 &  325 &  300 \\
-100  &  123 &  110 &  22 &  22 &  159 &  147 \\
+  5  & 2032 (544)  & 2060 (586)  &  440 (1743) &  428 (1749) & 3007 (196)  & 2935 (250)  \\
+ 10  & 2009 (1160) & 2182 (1256) &  276 (1911) &  272 (1916) & 2883 (781)  & 3021 (881)  \\
+ 20  &  591 (1942) &  547 (1954) &   64 (1953) &   61 (1954) & 1001 (1936) &  912 (1954) \\
+ 50  &  231 (1952) &  209 (1954) &   34 (1954) &   30 (1954) &  325 (1950) &  300 (1954) \\
+100  &  123 (1954) &  110 (1954) &   22 (1954) &   22 (1954) &  159 (1953) &  147 (1954) \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 Figure~\ref{fig:span_gain} shows mean delivery span (log scale) and the
 Phase-2 delivery-rate gain across all modes and fractions.

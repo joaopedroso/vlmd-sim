@@ -57,9 +57,11 @@ SIMULATOR/
 │   └── reporter.py          # Statistics (delivery rate, same-day rate, span, locker occupancy) and CSV output
 │
 ├── docs/
-│   ├── report.tex           # Full paper (LaTeX, two-column)
+│   ├── report.tex           # Full internal report (LaTeX, two-column)
 │   ├── make_figures.py      # Generate 4 publication-quality figures from summary.csv
-│   └── figures/             # Output PDFs: fig_delivery_rate, fig_sameday_rate, fig_delivery_span, fig_phase2_gain
+│   ├── figures/             # Output PDFs: fig_delivery_rate, fig_sameday_rate, fig_delivery_span, fig_phase2_gain
+│   └── VLMDL/               # Symlink to the ISC2 conference paper directory
+│                            # (maintained separately at ~/texts/papers/...; git-ignored here)
 │
 └── data/
     ├── graph.csv            # Directed metro edges: from, to, travel_time_min, line (324 rows — one per edge×line)
@@ -302,3 +304,60 @@ DATA/ (GTFS, Feb 2025)
 ### OD matrix improvements
 - Station-level boarding/alighting data from Metro do Porto (if accessible) would replace synthetic gravity-model marginals with real observations.
 - Employment data from INE census grids would improve production/attraction estimates.
+
+---
+
+## Conference paper (ISC2 2026)
+
+The experimental work is written up as a conference paper. The paper sources
+live in a separate location on the author's machine and are reached from this
+repo via a symlink at `docs/VLMDL/` (git-ignored). Contents of the paper
+directory:
+
+- `vlmdl.tex` — original submission (co-authored with Ana Viana, INESC TEC / ISEP).
+- `vlmdl_r1.tex` — R1 revision prepared in response to reviewer comments. The paper is 6 pages (IEEE conference, two-column).
+- `vlmdl.bib` — bibliography.
+- `figures/` — local copy of the figures referenced by the paper (must be kept in sync with the simulator repo's `docs/figures/`).
+- `prepare_metro_figure.py` — standalone script to produce the Metro do Porto network map figure.
+- `isc2-report_*.txt` — anonymous reviewer comments (confidential; not in any public repo).
+- `letter_to_editor.*` — response-to-reviewers letter (confidential; not in any public repo).
+
+### R1 revision highlights
+
+Reviewer-driven changes applied in `vlmdl_r1.tex`:
+
+- **Realistic participation framing**: added paragraphs distinguishing stated-preference willingness (high in surveys) from observed per-trip participation in field pilots (much lower). The specific "1--5%" figure was dropped as unsupported.
+- **New primary reference**: `fessler2023` (Fessler, Cash, Thorhauge, Haustein — *Transport Policy* 134, 106--118, 2023) for the Denmark public-transport crowdshipping field trial. Replaces the weaker Archetti/Sampaio citations as the empirical anchor for sparse participation.
+- **Clearance vs. customer service**: Conclusion now explicitly separates eventual network clearance (7-day delivery rate, complement = overdue rate under a one-week service promise) from acceptable customer service (same-day rate, span statistics).
+- **Model-limitation caveats**: added paragraphs on the gravity-model synthetic OD, idealized volunteer acceptance (every eligible volunteer accepts every eligible parcel), and locker-capacity expected first-order effect (delaying transfers rather than changing deliverability).
+- **Travel-time disclosure**: in-vehicle travel is approximated by a fixed 3-minute leg time (only volunteer departures are timetable-aligned). Stated in Section IV-C alongside the span discussion.
+- **Compactness** (Reviewer 3): removed the standalone same-day-rate table (same information already in Fig. 2b), removed the duplicate all-heuristics table at $p=10\%,20\%$ (folded inline), dropped $p=0.1\%$ and $p=50\%$ rows from the remaining tables. Removed Dijkstra and Furness citations (background algorithms).
+- **References fix** (Reviewer 4): the Metro do Porto press release is now in standard form (English title, press-release note, publisher URL, access date).
+- **Figure 2**: panel labels (Uniform / Positive / Negative) now sit inside the axes top-left; heuristic legend moved to center-left of the top panel.
+- **Highlighting macro**: `\rev{...}` colored additions in blue during the revision. In the final version the macro reduces to identity so the submitted PDF is uniform black.
+
+### Fitting 6 pages
+
+Several deliberate tightening moves keep the revised paper at 6 pages:
+- Network map at `.55\linewidth` to absorb the extra `fessler2023` reference and the added revision paragraphs.
+- Acknowledgements wrapped in `{\scriptsize ...\par}`.
+- Bibliography wrapped in `{\scriptsize ...\par}`.
+- Metro do Porto references use short `metrodoporto.pt/` URL with inline "accessed" note.
+
+### What is deferred
+
+The response letter (`letter_to_editor.tex`) itemizes requests that could not fit in six pages:
+- Explicit locker capacity constraints and per-station sizing.
+- Per-volunteer acceptance probability `q<1` as a separate parameter.
+- Delivery-time percentiles beyond median; formal overdue-rate curves at various service promises.
+- Station-level performance tables and volunteer workload distributions.
+- Multi-objective front combining delivery rate and delay.
+- Validation against observed Metro do Porto passenger flows.
+- Benchmarking against Wyrowski et al.'s exact formulation and additional rule-based baselines.
+
+All deferred items are also listed as future work (i)--(viii) in Section V of the revised paper.
+
+### Pending
+
+- The `--rev` highlighting macro was already toggled to identity, implying the paper is close to a clean camera-ready. Final check that no stray `\rev{...}` wrapping remains after acceptance.
+- Confirm that `docs/VLMDL/figures/` is in sync with `docs/figures/`: `make_figures.py` writes to the latter; the paper reads from the former. A one-line `cp -f` after each regeneration is required, or the paper's `\includegraphics` paths should be re-pointed to `../figures/`.

@@ -77,7 +77,7 @@ plt.rcParams.update({
     "figure.dpi":        150,
     "savefig.dpi":       300,
     "savefig.bbox":      "tight",
-    "text.usetex":       False,   # set True if LaTeX is desired for labels
+    "text.usetex":       True,
 })
 
 
@@ -132,7 +132,7 @@ def log_x_axis(ax, minor=True):
     ax.set_xscale("log")
     ax.set_xlim(0.08, 120)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(
-        lambda v, _: f"{v:g}%"
+        lambda v, _: f"{v:g}\\%"
     ))
     ax.xaxis.set_major_locator(mticker.LogLocator(base=10, numticks=6))
     if minor:
@@ -142,15 +142,16 @@ def log_x_axis(ax, minor=True):
 
 
 def panel_label(ax, letter: str, title: str):
-    ax.set_title(f"({letter}) {title}", loc="left", fontsize=8, pad=3)
+    ax.text(0.025, 0.95, title, transform=ax.transAxes,
+            ha="left", va="top", fontsize=8, fontweight="bold")
 
 
 def heuristic_legend(ax, loc="lower right", ncol=2):
     handles = [
-        mlines.Line2D([], [], label=f"{'hop':6s}", **STYLE["hop"]),
-        mlines.Line2D([], [], label=f"{'flow':6s}", **STYLE["flow"]),
-        mlines.Line2D([], [], label=f"{'hop+':6s}", **STYLE["hop+"]),
-        mlines.Line2D([], [], label=f"{'flow+':6s}", **STYLE["flow+"]),
+        mlines.Line2D([], [], label=LABEL["hop"],   **STYLE["hop"]),
+        mlines.Line2D([], [], label=LABEL["flow"],  **STYLE["flow"]),
+        mlines.Line2D([], [], label=LABEL["hop+"],  **STYLE["hop+"]),
+        mlines.Line2D([], [], label=LABEL["flow+"], **STYLE["flow+"]),
     ]
     ax.legend(handles=handles, loc=loc, ncol=ncol,
               handlelength=1.8, columnspacing=0.8, handletextpad=0.4)
@@ -170,14 +171,14 @@ def fig_delivery_rate(data: dict, out: Path) -> None:
             ys_pct = [v * 100 for v in ys]
             ax.plot(xs, ys_pct, **STYLE[h])
         ax.set_ylim(-3, 103)
-        ax.set_ylabel("Delivery rate (%)")
+        ax.set_ylabel(r"Delivery rate (\%)")
         ax.yaxis.set_major_locator(mticker.MultipleLocator(25))
         ax.axhline(100, color="0.75", lw=0.5, ls=":")
         panel_label(ax, letter, MODE_LABELS[mode])
         log_x_axis(ax)
 
     axes[-1].set_xlabel("Volunteer fraction")
-    heuristic_legend(axes[0], loc="upper left", ncol=2)
+    heuristic_legend(axes[0], loc="center left", ncol=2)
     fig.tight_layout(h_pad=0.6)
     fig.savefig(out)
     plt.close(fig)
@@ -231,7 +232,7 @@ def fig_sameday_rate(data: dict, out: Path) -> None:
             ys_pct = [v * 100 for v in ys]
             ax.plot(xs, ys_pct, label=h, **STYLE[h])
         ax.set_ylim(-3, 103)
-        ax.set_ylabel("Same-day rate (%)")
+        ax.set_ylabel(r"Same-day rate (\%)")
         ax.yaxis.set_major_locator(mticker.MultipleLocator(25))
         ax.axhline(100, color="0.75", lw=0.5, ls=":")
         panel_label(ax, letter, MODE_LABELS[mode])
@@ -240,10 +241,10 @@ def fig_sameday_rate(data: dict, out: Path) -> None:
     axes[-1].set_xlabel("Volunteer fraction")
     # Custom legend noting that + variants are identical
     handles = [
-        mlines.Line2D([], [], label="hop  (= hop+)",  **STYLE["hop"]),
-        mlines.Line2D([], [], label="flow (= flow+)", **STYLE["flow"]),
+        mlines.Line2D([], [], label=r"\texttt{hop} (= \texttt{hop+})",  **STYLE["hop"]),
+        mlines.Line2D([], [], label=r"\texttt{flow} (= \texttt{flow+})", **STYLE["flow"]),
     ]
-    axes[0].legend(handles=handles, loc="upper left",
+    axes[0].legend(handles=handles, loc="center left",
                    handlelength=1.8, handletextpad=0.4)
     fig.tight_layout(h_pad=0.6)
     fig.savefig(out)
@@ -269,8 +270,8 @@ def fig_phase2_gain(data: dict, out: Path) -> None:
     for ax, mode, letter in zip(axes, MODES, letters):
         # Δ = (hop+ rate) − (hop rate) and (flow+ rate) − (flow rate)
         for (base, plus), sty, label in [
-            (("hop",  "hop+"),  hop_style,  "hop+ − hop"),
-            (("flow", "flow+"), flow_style, "flow+ − flow"),
+            (("hop",  "hop+"),  hop_style,  r"\texttt{hop+} $-$ \texttt{hop}"),
+            (("flow", "flow+"), flow_style, r"\texttt{flow+} $-$ \texttt{flow}"),
         ]:
             base_d = {p: statistics.mean(data[base][mode][p]["delivery_rate"])
                       for p in FRACTIONS
@@ -284,7 +285,7 @@ def fig_phase2_gain(data: dict, out: Path) -> None:
             ax.plot(xs, ys, label=label, **sty)
 
         ax.axhline(0, color="0.6", lw=0.6, ls=":")
-        ax.set_ylabel("Δ Delivery rate (pp)")   # Δ
+        ax.set_ylabel(r"$\Delta$ Delivery rate (pp)")
         panel_label(ax, letter, MODE_LABELS[mode])
         log_x_axis(ax)
 

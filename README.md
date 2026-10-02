@@ -6,6 +6,8 @@ Parcels are placed in station lockers and carried toward their destination by or
 
 The network and passenger data are based on the **Porto Metro** (Portugal), using real GTFS timetables and a gravity-model OD matrix calibrated to ~259,000 daily validations (2025).
 
+The experimental work is written up in a conference paper (ISC2 2026, co-authored with A. Viana — see the Citation section below). Paper sources are maintained in a separate location.
+
 ---
 
 ## Research questions
@@ -74,7 +76,7 @@ SIMULATOR/
 │   └── reporter.py          # Statistics (delivery rate, span, same-day rate, locker occupancy) and CSV output
 │
 ├── docs/
-│   ├── report.tex           # Full research paper (LaTeX, two-column)
+│   ├── report.tex           # Internal technical report (LaTeX, two-column)
 │   ├── make_figures.py      # Generate 4 publication figures from summary.csv
 │   └── figures/             # fig_delivery_rate.pdf, fig_sameday_rate.pdf, fig_delivery_span.pdf, fig_phase2_gain.pdf
 │
@@ -233,4 +235,8 @@ Key parameters in `run_experiment.py` and `main.py`:
 
 If you use this simulator in your research, please cite:
 
-> J.P. Pedroso, *vlmd-sim: A discrete-event simulator for volunteer-based last-mile delivery over metro networks*, 2025. https://github.com/joaopedroso/vlmd-sim
+> J.P. Pedroso and A. Viana, *A model for last-mile delivery with lockers and volunteers*, IEEE International Smart Cities Conference (ISC2), 2026.
+
+Software repository:
+
+> J.P. Pedroso, *vlmd-sim: A discrete-event simulator for volunteer-based last-mile delivery over metro networks*, 2026. https://github.com/joaopedroso/vlmd-sim

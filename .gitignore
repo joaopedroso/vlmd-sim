@@ -15,3 +15,27 @@ results/
 # Editor temp files
 *.md~
 *.txt~
+*.tex~
+*.bib~
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Pre-generated instance data (large, reproducible from scripts)
+data/instances/
+data/instances_*pct/
+
+# Local session artifacts
+.claude/
+.tabname
+_prompt.txt
+resume.txt
+
+# Conference paper maintained in a separate location (symlinked locally)
+docs/VLMDL
